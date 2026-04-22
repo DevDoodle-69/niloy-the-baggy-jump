@@ -4,7 +4,7 @@
   "description": "Endless runner in neon-drenched Dheka City. Run, jump, slide, survive!",
   "start_url": "/",
   "display": "fullscreen",
-  "orientation": "landscape",
+  "orientation": "any",
   "background_color": "#1a0b3d",
   "theme_color": "#1a0b3d",
   "categories": ["games", "entertainment"],

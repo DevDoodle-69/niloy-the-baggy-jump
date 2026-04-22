@@ -406,7 +406,31 @@ export default function Game() {
     };
     handleResize();
     window.addEventListener("resize", handleResize);
-    return () => window.removeEventListener("resize", handleResize);
+    // Re-measure after fullscreen change (URL bar disappears / reappears)
+    document.addEventListener("fullscreenchange", handleResize);
+    document.addEventListener("webkitfullscreenchange", handleResize);
+    return () => {
+      window.removeEventListener("resize", handleResize);
+      document.removeEventListener("fullscreenchange", handleResize);
+      document.removeEventListener("webkitfullscreenchange", handleResize);
+    };
+  }, []);
+
+  // Request fullscreen to hide browser chrome (URL bar) on mobile
+  useEffect(() => {
+    const requestFS = () => {
+      const el = document.documentElement as any;
+      if (el.requestFullscreen) el.requestFullscreen({ navigationUI: "hide" }).catch(() => {});
+      else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
+      // Also try orientation lock every time they interact
+      if (screen.orientation?.lock) screen.orientation.lock("landscape").catch(() => {});
+    };
+    document.addEventListener("pointerdown", requestFS, { once: true });
+    document.addEventListener("touchstart", requestFS, { once: true });
+    return () => {
+      document.removeEventListener("pointerdown", requestFS);
+      document.removeEventListener("touchstart", requestFS);
+    };
   }, []);
 
   useEffect(() => {
@@ -1398,7 +1422,7 @@ export default function Game() {
   const powerColor = activePower === "magnet" ? "#ff00aa" : activePower === "shield" ? "#00ffff" : "#ffd700";
 
   return (
-    <div className="relative w-screen h-screen overflow-hidden bg-black">
+    <div className="relative overflow-hidden bg-black" style={{ width: "100vw", height: "100dvh" }}>
       <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" />
 
       {/* INTRO */}
@@ -2157,42 +2181,6 @@ export default function Game() {
         </button>
       </div>
 
-      {/* ── PORTRAIT OVERLAY — rotate-device prompt for small phones ── */}
-      <div className="portrait-overlay">
-        <div style={{ fontSize: "3.5rem", animation: "rotate-pulse 1.8s ease-in-out infinite" }}>
-          📱
-        </div>
-        <div style={{
-          fontSize: "1.1rem",
-          fontWeight: 900,
-          letterSpacing: "0.15em",
-          color: "#ffd700",
-          textShadow: "0 0 20px #ffd700",
-        }}>
-          ROTATE YOUR DEVICE
-        </div>
-        <div style={{
-          fontSize: "0.78rem",
-          color: "rgba(255,255,255,0.7)",
-          letterSpacing: "0.1em",
-          fontWeight: 500,
-          marginTop: "4px",
-        }}>
-          This game plays best in landscape mode
-        </div>
-        <div style={{
-          marginTop: "16px",
-          padding: "8px 20px",
-          background: "rgba(255,215,0,0.1)",
-          border: "2px solid rgba(255,215,0,0.4)",
-          borderRadius: "999px",
-          fontSize: "0.72rem",
-          color: "#ffd700",
-          letterSpacing: "0.2em",
-        }}>
-          BAGGY AMAR 3 DA
-        </div>
-      </div>
     </div>
   );
 }

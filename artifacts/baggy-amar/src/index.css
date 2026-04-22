@@ -136,21 +136,24 @@ html, body, #root {
   text-shadow: 0 0 14px rgba(255, 215, 0, 0.7), 3px 3px 0 #1a0b3d;
 }
 
-/* Mobile control buttons — always hidden by default */
+/* Mobile control buttons */
 .mobile-ctrl {
-  width: 72px;
-  height: 72px;
+  /* Scale with the smaller viewport dimension so they're proportional in
+     both portrait AND landscape, on any phone size */
+  width: clamp(52px, 13vmin, 70px);
+  height: clamp(52px, 13vmin, 70px);
   border-radius: 50%;
-  background: rgba(26, 11, 61, 0.82);
+  background: rgba(26, 11, 61, 0.85);
   border: 3px solid rgba(255, 215, 0, 0.75);
   color: #ffd700;
-  font-size: 28px;
+  font-size: clamp(20px, 5vmin, 28px);
   font-weight: 900;
   display: flex;
   align-items: center;
   justify-content: center;
-  backdrop-filter: blur(8px);
-  box-shadow: 0 0 22px rgba(255, 0, 170, 0.5), inset 0 0 10px rgba(255,215,0,0.08);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  box-shadow: 0 0 18px rgba(255, 0, 170, 0.5), inset 0 0 10px rgba(255,215,0,0.08);
   user-select: none;
   -webkit-user-select: none;
   touch-action: none;
@@ -158,17 +161,21 @@ html, body, #root {
   -webkit-appearance: none;
   appearance: none;
   transition: background 0.1s ease, transform 0.08s ease;
+  flex-shrink: 0;
 }
 .mobile-ctrl:active {
   background: rgba(255, 0, 170, 0.45);
-  transform: scale(0.90);
-  box-shadow: 0 0 30px rgba(255, 0, 170, 0.8);
+  transform: scale(0.88);
+  box-shadow: 0 0 28px rgba(255, 0, 170, 0.85);
 }
 
 .slide-btn {
   border-color: rgba(0, 255, 255, 0.75);
   color: #00ffff;
-  box-shadow: 0 0 22px rgba(0, 255, 255, 0.5), inset 0 0 10px rgba(0,255,255,0.08);
+  box-shadow: 0 0 18px rgba(0, 255, 255, 0.5), inset 0 0 10px rgba(0,255,255,0.08);
+}
+.slide-btn:active {
+  box-shadow: 0 0 28px rgba(0, 255, 255, 0.85);
 }
 
 /* Show on touch/coarse-pointer devices (phones and tablets) */
@@ -207,34 +214,4 @@ html, body, #root {
   letter-spacing: 0.05em;
   text-shadow: 0 0 6px rgba(255, 215, 0, 0.5);
   margin: 2px;
-}
-
-/* Responsiveness */
-@media (max-height: 480px) {
-  .mobile-ctrl { width: 58px; height: 58px; font-size: 22px; }
-}
-
-/* Portrait-mode overlay */
-.portrait-overlay {
-  display: none;
-  position: fixed;
-  inset: 0;
-  background: #1a0b3d;
-  z-index: 9999;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 20px;
-  color: #ffd700;
-  font-family: 'Inter', sans-serif;
-  font-weight: 900;
-  letter-spacing: 0.1em;
-  text-align: center;
-  padding: 24px;
-}
-
-@media (max-width: 600px) and (orientation: portrait) {
-  .portrait-overlay {
-    display: flex;
-  }
 }

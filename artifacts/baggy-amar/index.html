@@ -34,18 +34,27 @@
         });
       }
 
-      /* Orientation lock — keep the game in landscape on mobile */
-      function tryLockLandscape() {
+      /* On first user interaction: go fullscreen + lock orientation */
+      function onFirstTouch() {
+        /* 1. Fullscreen — hides URL bar on Android Chrome */
+        var el = document.documentElement;
+        if (el.requestFullscreen) {
+          el.requestFullscreen({ navigationUI: 'hide' }).catch(function(){});
+        } else if (el.webkitRequestFullscreen) {
+          el.webkitRequestFullscreen();
+        }
+        /* 2. Orientation lock — prefer landscape but allow portrait too */
         if (screen.orientation && screen.orientation.lock) {
-          screen.orientation.lock('landscape').catch(() => {});
+          /* Try landscape first; if the user rotates back to portrait later
+             the game still works (we removed the overlay block) */
+          screen.orientation.lock('landscape').catch(function(){
+            /* If lock is rejected (e.g. desktop browsers), that's fine */
+          });
         }
       }
 
-      /* Lock on first user interaction (required by browsers) */
-      document.addEventListener('pointerdown', tryLockLandscape, { once: true });
-      document.addEventListener('touchstart', tryLockLandscape, { once: true });
-      /* Also try immediately (works in some PWA contexts) */
-      tryLockLandscape();
+      document.addEventListener('pointerdown', onFirstTouch, { once: true });
+      document.addEventListener('touchstart',  onFirstTouch, { once: true });
     </script>
   </body>
 </html>
