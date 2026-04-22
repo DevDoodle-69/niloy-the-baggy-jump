@@ -379,11 +379,17 @@ export default function Game() {
       s.runFrame = (s.runFrame + 0.3 + s.speed * 0.02) % 4;
       s.timeOfDay += 0.0008;
 
-      // Difficulty — gentle ramp at start then accelerating
+      // Difficulty — very gentle, slow ramp. Speed creeps up gradually.
       const speedMultiplier = s.activePower === "boost" ? 1.5 : 1;
-      const warmup = Math.min(1, s.frame / 240); // ease in over first ~4s
-      const baseSpeed = SCROLL_SPEED_BASE * (0.7 + 0.3 * warmup);
-      s.speed = (baseSpeed + Math.min(8, s.score / 220)) * speedMultiplier;
+      const warmup = Math.min(1, s.frame / 360); // ease in over first ~6s
+      const baseSpeed = SCROLL_SPEED_BASE * (0.65 + 0.35 * warmup);
+      // Much slower score-based acceleration: cap at +5 over ~3000 score (was +8 at 1760)
+      const scoreBoost = Math.min(5, s.score / 600);
+      s.speed = (baseSpeed + scoreBoost) * speedMultiplier;
+
+      // Intensity oscillation — creates waves of "calm" and "intense" gameplay
+      // Period ~14 seconds, smooth sine wave between 0.4 (chill) and 1.0 (busy)
+      const intensity = 0.7 + 0.3 * Math.sin(s.frame / 130);
 
       // Wind drift
       if (s.frame % 180 === 0) s.windTarget = (Math.random() - 0.5) * 1.2;
@@ -527,29 +533,45 @@ export default function Game() {
         s.obstacles.push({
           x: W + 40, y, w, h, type, rot: 0, vy, baseY,
         });
-        // Spawn rate eases in: very loose at first, tightens with score
-        const earlyEase = Math.max(0, 1 - s.score / 200); // 1 -> 0 over first 200 score
-        s.spawnTimer = Math.max(45, 130 - s.score / 22) + earlyEase * 80;
-        // sometimes pair (only later in run)
-        if (Math.random() < 0.15 && s.score > 400) {
-          s.spawnTimer = 32;
+        // Spawn rate: very loose at first, slowly tightens, modulated by intensity wave
+        const earlyEase = Math.max(0, 1 - s.score / 400); // 1 -> 0 over first 400 score
+        const baseGap = Math.max(60, 160 - s.score / 35); // tightens slowly
+        // Intensity ~0.4 (calm) → larger gaps; ~1.0 (busy) → smaller gaps
+        const intensityMod = 1.6 - intensity; // 0.6 (busy) to 1.2 (calm)
+        s.spawnTimer = baseGap * intensityMod + earlyEase * 100 + Math.random() * 40;
+        // Rare paired obstacles only at high score and only during busy waves
+        if (intensity > 0.9 && Math.random() < 0.12 && s.score > 600) {
+          s.spawnTimer = 38;
         }
       }
 
-      // Spawn collectibles
+      // Spawn collectibles — varied rhythm: solos, duos, arcs, lines, droughts
       s.collectTimer--;
       if (s.collectTimer <= 0) {
-        const isGolden = Math.random() < 0.08;
+        // Pattern roll: weighted choice between solo / pair / arc / line / drought
+        // intensity wave biases towards more jeans during busy phases
+        const roll = Math.random();
+        let pattern: "solo" | "pair" | "arc" | "line" | "drought";
+        if (roll < 0.08) pattern = "drought";        // 8% — rare empty stretch
+        else if (roll < 0.50) pattern = "solo";      // 42% — single jean
+        else if (roll < 0.72) pattern = "pair";      // 22% — two jeans
+        else if (roll < 0.90) pattern = "arc";       // 18% — graceful arc
+        else pattern = "line";                       // 10% — straight line
+
+        const isGolden = pattern === "solo" && Math.random() < 0.10;
         const w = isGolden ? 70 : 56;
         const h = isGolden ? 100 : 80;
-        // Sometimes spawn arc of jeans
-        if (Math.random() < 0.35) {
+
+        if (pattern === "drought") {
+          // Spawn nothing this cycle, just wait
+          s.collectTimer = 140 + Math.random() * 80;
+        } else if (pattern === "arc") {
           const count = 4 + Math.floor(Math.random() * 3);
           const startX = W + 40;
           const peakHeight = 100 + Math.random() * 140;
           for (let i = 0; i < count; i++) {
             const t = i / (count - 1);
-            const arcY = groundY - h - 40 - peakHeight * Math.sin(t * Math.PI);
+            const arcY = groundY - 80 - 40 - peakHeight * Math.sin(t * Math.PI);
             s.collectibles.push({
               x: startX + i * 70,
               y: arcY,
@@ -560,7 +582,36 @@ export default function Game() {
               golden: false,
             });
           }
+          // Long cooldown after a big group so the screen breathes
+          s.collectTimer = 160 + Math.random() * 80;
+        } else if (pattern === "line") {
+          const count = 3 + Math.floor(Math.random() * 2);
+          const yPos = groundY - 80 - (60 + Math.random() * 140);
+          for (let i = 0; i < count; i++) {
+            s.collectibles.push({
+              x: W + 40 + i * 80,
+              y: yPos, w: 56, h: 80,
+              collected: false,
+              bob: Math.random() * Math.PI * 2,
+              rot: 0,
+              golden: false,
+            });
+          }
+          s.collectTimer = 150 + Math.random() * 70;
+        } else if (pattern === "pair") {
+          const yA = groundY - h - (20 + Math.random() * 200);
+          const yB = groundY - h - (20 + Math.random() * 200);
+          s.collectibles.push({
+            x: W + 40, y: yA, w, h,
+            collected: false, bob: Math.random() * Math.PI * 2, rot: 0, golden: false,
+          });
+          s.collectibles.push({
+            x: W + 40 + 90, y: yB, w, h,
+            collected: false, bob: Math.random() * Math.PI * 2, rot: 0, golden: false,
+          });
+          s.collectTimer = 110 + Math.random() * 60;
         } else {
+          // solo
           const heightTier = Math.floor(Math.random() * 3);
           const yPos = heightTier === 0 ? groundY - h - 20
             : heightTier === 1 ? groundY - h - 130
@@ -573,8 +624,13 @@ export default function Game() {
             rot: 0,
             golden: isGolden,
           });
+          s.collectTimer = 80 + Math.random() * 70;
         }
-        s.collectTimer = 70 + Math.random() * 50;
+
+        // During calm intensity waves, add extra breathing room between groups
+        if (intensity < 0.55) {
+          s.collectTimer += 50;
+        }
       }
 
       // Spawn power-ups
@@ -1619,61 +1675,48 @@ export default function Game() {
               >
                 MAIN MENU
               </button>
-            </div>
-          </div>
 
-          {/* Developer footer — small but unmissable */}
-          <div
-            className="pointer-events-none"
-            style={{
-              position: "fixed",
-              left: 0,
-              right: 0,
-              bottom: "max(14px, env(safe-area-inset-bottom, 14px))",
-              display: "flex",
-              justifyContent: "center",
-              zIndex: 50,
-            }}
-          >
-            <div
-              style={{
-                padding: "6px 14px",
-                borderRadius: "999px",
-                background: "rgba(10, 5, 24, 0.75)",
-                border: "1px solid rgba(255, 215, 0, 0.4)",
-                boxShadow: "0 0 18px rgba(255, 0, 170, 0.35)",
-                backdropFilter: "blur(6px)",
-                fontSize: "11px",
-                letterSpacing: "0.35em",
-                fontWeight: 800,
-                color: "rgba(255, 255, 255, 0.9)",
-                whiteSpace: "nowrap",
-                textShadow: "0 0 6px rgba(255, 0, 170, 0.5)",
-              }}
-            >
-              MADE WITH{" "}
-              <span
+              {/* Developer footer — placed inside the panel so it's ALWAYS visible */}
+              <div
+                className="mt-4"
                 style={{
-                  color: "#ff2266",
-                  textShadow: "0 0 10px #ff2266, 0 0 18px #ff2266",
-                  fontSize: "13px",
-                  display: "inline-block",
-                  animation: "pulse-glow 1.4s ease-in-out infinite",
+                  padding: "8px 18px",
+                  borderRadius: "999px",
+                  background: "rgba(10, 5, 24, 0.85)",
+                  border: "1px solid rgba(255, 215, 0, 0.5)",
+                  boxShadow: "0 0 22px rgba(255, 0, 170, 0.45)",
+                  fontSize: "11px",
+                  letterSpacing: "0.35em",
+                  fontWeight: 800,
+                  color: "rgba(255, 255, 255, 0.95)",
+                  whiteSpace: "nowrap",
+                  textShadow: "0 0 6px rgba(255, 0, 170, 0.5)",
                 }}
               >
-                ♥
-              </span>{" "}
-              BY{" "}
-              <span
-                style={{
-                  color: "#ffd700",
-                  textShadow: "0 0 10px #ffd700, 0 0 20px #ff00aa",
-                  letterSpacing: "0.5em",
-                  marginLeft: "2px",
-                }}
-              >
-                NZ R
-              </span>
+                MADE WITH{" "}
+                <span
+                  style={{
+                    color: "#ff2266",
+                    textShadow: "0 0 10px #ff2266, 0 0 18px #ff2266",
+                    fontSize: "14px",
+                    display: "inline-block",
+                    animation: "pulse-glow 1.4s ease-in-out infinite",
+                  }}
+                >
+                  ♥
+                </span>{" "}
+                BY{" "}
+                <span
+                  style={{
+                    color: "#ffd700",
+                    textShadow: "0 0 10px #ffd700, 0 0 20px #ff00aa",
+                    letterSpacing: "0.5em",
+                    marginLeft: "2px",
+                  }}
+                >
+                  NZ R
+                </span>
+              </div>
             </div>
           </div>
         </div>
