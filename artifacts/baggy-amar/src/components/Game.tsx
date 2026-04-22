@@ -403,6 +403,24 @@ export default function Game() {
       canvas.style.height = window.innerHeight + "px";
       const ctx = canvas.getContext("2d");
       ctx?.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+      // Re-snap player to the correct ground after orientation change
+      // so they never clip through the floor or float above it
+      const s = stateRef.current;
+      if (s && s.player) {
+        const newGroundY = window.innerHeight * GROUND_Y_RATIO;
+        // Keep x proportional to new width
+        s.player.x = window.innerWidth * 0.12;
+        if (s.player.onGround) {
+          s.player.y = newGroundY - PLAYER_H;
+          s.player.vy = 0;
+        } else if (s.player.y > newGroundY - PLAYER_H) {
+          // Was mid-air but now below the new ground — snap back up
+          s.player.y = newGroundY - PLAYER_H;
+          s.player.vy = 0;
+          s.player.onGround = true;
+        }
+      }
     };
     handleResize();
     window.addEventListener("resize", handleResize);
@@ -1469,18 +1487,31 @@ export default function Game() {
 
       {/* MENU */}
       {gameState === "menu" && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none px-4">
-          <div className="text-center pointer-events-auto flex flex-col items-center">
-            {/* Hero portrait */}
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none px-3" style={{ overflow: "hidden" }}>
+          {/* Responsive wrapper: column in portrait, row in landscape */}
+          <div
+            className="pointer-events-auto"
+            style={{
+              display: "flex",
+              flexDirection: "var(--menu-dir, column)" as any,
+              alignItems: "center",
+              justifyContent: "center",
+              gap: "clamp(8px, 2vmin, 20px)",
+              maxHeight: "100dvh",
+              width: "100%",
+            }}
+          >
+            {/* Hero portrait — smaller in landscape via vmin */}
             <div
-              className="pulse-glow mb-4"
+              className="pulse-glow"
               style={{
-                width: "clamp(120px, 22vw, 200px)",
-                height: "clamp(120px, 22vw, 200px)",
+                width: "clamp(72px, 22vmin, 160px)",
+                height: "clamp(72px, 22vmin, 160px)",
+                flexShrink: 0,
                 borderRadius: "999px",
                 overflow: "hidden",
-                border: "5px solid #ffd700",
-                boxShadow: "0 0 40px #ff00aa, inset 0 0 20px rgba(0,0,0,0.4)",
+                border: "4px solid #ffd700",
+                boxShadow: "0 0 32px #ff00aa, inset 0 0 16px rgba(0,0,0,0.4)",
                 background: "#1a0b3d",
               }}
             >
@@ -1492,72 +1523,73 @@ export default function Game() {
               />
             </div>
 
-            <h1
-              className="title-zoom"
-              style={{
-                fontSize: "clamp(2.4rem, 9vw, 6rem)",
-                fontWeight: 900,
-                letterSpacing: "0.02em",
-                lineHeight: 0.9,
-                color: "#ffd700",
-                textShadow: "0 0 30px #ff00aa, 4px 4px 0 #ff2266, 8px 8px 30px rgba(0,0,0,0.8)",
-                margin: 0,
-              }}
-            >
-              BAGGY AMAR
-            </h1>
-            <div
-              style={{
-                fontSize: "clamp(1.2rem, 4.5vw, 2.6rem)",
-                fontWeight: 900,
-                color: "#00ffff",
-                textShadow: "0 0 20px #00ffff, 3px 3px 0 #ff00aa",
-                letterSpacing: "0.2em",
-                marginTop: "0.2em",
-              }}
-            >
-              3 DA
-            </div>
+            {/* Text + buttons column */}
+            <div className="text-center flex flex-col items-center" style={{ gap: "clamp(4px, 1.2vmin, 12px)", minWidth: 0 }}>
+              <h1
+                className="title-zoom"
+                style={{
+                  fontSize: "clamp(1.6rem, 8vmin, 5rem)",
+                  fontWeight: 900,
+                  letterSpacing: "0.02em",
+                  lineHeight: 0.9,
+                  color: "#ffd700",
+                  textShadow: "0 0 30px #ff00aa, 4px 4px 0 #ff2266, 8px 8px 30px rgba(0,0,0,0.8)",
+                  margin: 0,
+                }}
+              >
+                BAGGY AMAR
+              </h1>
+              <div
+                style={{
+                  fontSize: "clamp(0.85rem, 3.5vmin, 2rem)",
+                  fontWeight: 900,
+                  color: "#00ffff",
+                  textShadow: "0 0 20px #00ffff, 3px 3px 0 #ff00aa",
+                  letterSpacing: "0.2em",
+                }}
+              >
+                3 DA
+              </div>
 
-            <div className="mt-6 flex flex-col items-center gap-3">
               <button
                 onClick={startGame}
                 className="btn-press pulse-glow"
                 style={{
-                  padding: "14px 44px",
-                  fontSize: "clamp(1.1rem, 3vw, 1.7rem)",
+                  padding: "clamp(8px, 2vmin, 14px) clamp(20px, 6vmin, 44px)",
+                  fontSize: "clamp(0.85rem, 2.8vmin, 1.5rem)",
                   fontWeight: 900,
                   background: "linear-gradient(135deg, #ffd700, #ff00aa)",
                   color: "#1a0b3d",
-                  border: "4px solid #fff",
+                  border: "3px solid #fff",
                   borderRadius: "999px",
                   cursor: "pointer",
                   letterSpacing: "0.15em",
-                  boxShadow: "0 8px 0 #5d1259, 0 12px 30px rgba(255, 0, 170, 0.6)",
+                  boxShadow: "0 6px 0 #5d1259, 0 10px 24px rgba(255, 0, 170, 0.6)",
+                  marginTop: "clamp(4px, 1.5vmin, 12px)",
                 }}
               >
                 ▶ JUMP IN
               </button>
 
               {highScore > 0 && (
-                <div className="mt-1 text-white/90 font-bold tracking-widest" style={{ fontSize: "0.95rem" }}>
+                <div className="text-white/90 font-bold tracking-widest" style={{ fontSize: "clamp(0.7rem, 1.8vmin, 0.95rem)" }}>
                   HI-SCORE:{" "}
                   <span style={{ color: "#ffd700", textShadow: "0 0 10px #ffd700" }}>{highScore}</span>
                 </div>
               )}
 
-              <div className="mt-4 text-white/70 text-[10px] sm:text-xs tracking-widest text-center" style={{ letterSpacing: "0.25em" }}>
-                <div>SPACE / TAP — JUMP · DOUBLE FOR CLIMB</div>
-                <div className="mt-1">HOLD — JUMP HIGHER · ↓ — SLIDE / DIVE</div>
-                <div className="mt-1 text-white/50">COLLECT JEANS · GRAB POWER-UPS · BUILD COMBO</div>
+              {/* Controls hint — hidden when there's not enough height */}
+              <div className="text-white/70 tracking-widest text-center landscape-hide" style={{ fontSize: "clamp(0.55rem, 1.5vmin, 0.75rem)", letterSpacing: "0.2em", lineHeight: 1.6 }}>
+                <div>SPACE / TAP — JUMP &nbsp;·&nbsp; ↓ — SLIDE</div>
+                <div className="text-white/50">COLLECT JEANS · BUILD COMBO</div>
               </div>
 
               <button
                 onClick={() => setShowControls(true)}
-                className="btn-press mt-3"
+                className="btn-press"
                 style={{
-                  padding: "6px 18px",
-                  fontSize: "0.75rem",
+                  padding: "5px 16px",
+                  fontSize: "clamp(0.6rem, 1.5vmin, 0.75rem)",
                   fontWeight: 700,
                   background: "rgba(26, 11, 61, 0.7)",
                   color: "#ffd700",
@@ -2103,83 +2135,83 @@ export default function Game() {
         </div>
       )}
 
-      {/* ── MOBILE CONTROLS — rendered last, always on top ── */}
-      <div
-        style={{
-          position: "fixed",
-          left: 0,
-          right: 0,
-          bottom: "max(20px, env(safe-area-inset-bottom, 20px))",
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "flex-end",
-          padding: "0 20px",
-          zIndex: 999,
-          pointerEvents: "none",
-        }}
-      >
-        {/* SLIDE / DIVE button — bottom left, cyan ring */}
-        <button
-          aria-label="Slide / dive"
-          className="mobile-ctrl slide-btn only-touch"
-          style={{ pointerEvents: "auto" }}
-          onPointerDown={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            if (gameState !== "playing") return;
-            const s = stateRef.current;
-            if (s.player.onGround) {
-              if (!s.player.sliding) {
-                s.player.sliding = true;
-                s.player.slideTimer = 55;
-                const groundY = window.innerHeight * GROUND_Y_RATIO;
-                for (let i = 0; i < 12; i++) {
-                  s.particles.push({
-                    x: s.player.x + PLAYER_W / 2 + (Math.random() - 0.5) * 50,
-                    y: groundY - 4,
-                    vx: (Math.random() - 0.5) * 6 - s.speed * 0.4,
-                    vy: -1.5 - Math.random() * 3,
-                    life: 22, maxLife: 22,
-                    color: ["#c9a87a", "#e0c89a", "#b89060"][Math.floor(Math.random() * 3)],
-                    size: 3 + Math.random() * 4,
-                  });
+      {/* ── MOBILE CONTROLS — only visible during active gameplay ── */}
+      {gameState === "playing" && (
+        <div
+          className="only-touch"
+          style={{
+            position: "fixed",
+            left: 0,
+            right: 0,
+            bottom: "max(16px, env(safe-area-inset-bottom, 16px))",
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "flex-end",
+            padding: "0 16px",
+            zIndex: 999,
+            pointerEvents: "none",
+          }}
+        >
+          {/* SLIDE / DIVE — bottom left, cyan ring */}
+          <button
+            aria-label="Slide / dive"
+            className="mobile-ctrl slide-btn"
+            style={{ pointerEvents: "auto" }}
+            onPointerDown={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              const s = stateRef.current;
+              if (s.player.onGround) {
+                if (!s.player.sliding) {
+                  s.player.sliding = true;
+                  s.player.slideTimer = 55;
+                  const groundY = window.innerHeight * GROUND_Y_RATIO;
+                  for (let i = 0; i < 12; i++) {
+                    s.particles.push({
+                      x: s.player.x + PLAYER_W / 2 + (Math.random() - 0.5) * 50,
+                      y: groundY - 4,
+                      vx: (Math.random() - 0.5) * 6 - s.speed * 0.4,
+                      vy: -1.5 - Math.random() * 3,
+                      life: 22, maxLife: 22,
+                      color: ["#c9a87a", "#e0c89a", "#b89060"][Math.floor(Math.random() * 3)],
+                      size: 3 + Math.random() * 4,
+                    });
+                  }
+                } else {
+                  s.player.slideTimer = 55;
                 }
               } else {
-                s.player.slideTimer = 55;
+                s.player.vy = Math.max(s.player.vy + 9, 15);
               }
-            } else {
-              s.player.vy = Math.max(s.player.vy + 9, 15);
-            }
-          }}
-        >
-          ↙
-        </button>
+            }}
+          >
+            ↙
+          </button>
 
-        {/* JUMP button — bottom right, gold ring */}
-        <button
-          aria-label="Jump"
-          className="mobile-ctrl only-touch"
-          style={{ pointerEvents: "auto" }}
-          onPointerDown={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            if (gameState === "playing") tryJump();
-            else if (gameState === "menu" || gameState === "gameover") startGame();
-            else if (gameState === "intro") setGameState("menu");
-          }}
-          onPointerUp={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            releaseJump();
-          }}
-          onPointerCancel={(e) => {
-            e.preventDefault();
-            releaseJump();
-          }}
-        >
-          ↑
-        </button>
-      </div>
+          {/* JUMP — bottom right, gold ring */}
+          <button
+            aria-label="Jump"
+            className="mobile-ctrl"
+            style={{ pointerEvents: "auto" }}
+            onPointerDown={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              tryJump();
+            }}
+            onPointerUp={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              releaseJump();
+            }}
+            onPointerCancel={(e) => {
+              e.preventDefault();
+              releaseJump();
+            }}
+          >
+            ↑
+          </button>
+        </div>
+      )}
 
     </div>
   );

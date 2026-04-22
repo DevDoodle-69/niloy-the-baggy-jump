@@ -196,6 +196,26 @@ html, body, #root {
   }
 }
 
+/* In landscape, switch menu to side-by-side and hide low-priority text */
+@media (orientation: landscape) and (max-height: 500px) {
+  .landscape-hide {
+    display: none !important;
+  }
+}
+
+/* CSS custom property trick: set --menu-dir so the menu wrapper
+   can flip between column (portrait) and row (landscape) */
+@media (orientation: landscape) {
+  :root {
+    --menu-dir: row;
+  }
+}
+@media (orientation: portrait) {
+  :root {
+    --menu-dir: column;
+  }
+}
+
 /* Keyboard key visual */
 .kbd {
   display: inline-flex;
