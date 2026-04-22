@@ -1,16 +1,22 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import playerImg from "@assets/Picsart_26-04-22_22-07-58-568_1776874889373.png";
 import jeansImg from "@assets/Picsart_26-04-22_22-16-38-121_1776874882176.png";
+import faceImg from "@assets/IMG_20260422_222620_505_1776875465902.jpg";
 
 type GameState = "intro" | "menu" | "playing" | "gameover";
+
+type ObstacleType = "spike" | "rock" | "saw" | "drone" | "fire";
+type PowerUpType = "magnet" | "shield" | "boost";
 
 interface Obstacle {
   x: number;
   y: number;
   w: number;
   h: number;
-  type: "spike" | "rock" | "saw";
+  type: ObstacleType;
   rot: number;
+  vy?: number;
+  baseY?: number;
 }
 
 interface Collectible {
@@ -21,6 +27,18 @@ interface Collectible {
   collected: boolean;
   bob: number;
   rot: number;
+  golden: boolean;
+}
+
+interface PowerUp {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  type: PowerUpType;
+  collected: boolean;
+  bob: number;
+  pulse: number;
 }
 
 interface Particle {
@@ -32,6 +50,7 @@ interface Particle {
   maxLife: number;
   color: string;
   size: number;
+  gravity?: number;
 }
 
 interface Cloud {
@@ -48,12 +67,26 @@ interface Building {
   color: string;
 }
 
-const GRAVITY = 0.7;
-const JUMP_VELOCITY = -15.5;
-const GROUND_Y = 0.82; // ratio of canvas height
+interface FloatingText {
+  x: number;
+  y: number;
+  text: string;
+  life: number;
+  maxLife: number;
+  color: string;
+  size: number;
+  vy: number;
+}
+
+const GRAVITY = 0.75;
+const JUMP_VELOCITY = -16;
+const COYOTE_FRAMES = 6;
+const JUMP_BUFFER_FRAMES = 8;
+const VARIABLE_JUMP_CUTOFF = -7;
+const GROUND_Y_RATIO = 0.82;
 const PLAYER_W = 70;
 const PLAYER_H = 110;
-const SCROLL_SPEED_BASE = 5;
+const SCROLL_SPEED_BASE = 5.2;
 
 export default function Game() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -64,40 +97,59 @@ export default function Game() {
     return stored ? parseInt(stored, 10) : 0;
   });
   const [collected, setCollected] = useState(0);
+  const [combo, setCombo] = useState(0);
+  const [activePower, setActivePower] = useState<PowerUpType | null>(null);
+  const [powerTime, setPowerTime] = useState(0);
 
-  // Mutable game refs
   const stateRef = useRef({
     player: {
       x: 140,
       y: 0,
       vy: 0,
+      vx: 0,
       onGround: true,
       doubleJumped: false,
       climbing: false,
       tilt: 0,
+      coyote: 0,
+      jumpBuffer: 0,
+      jumpHeld: false,
+      sliding: false,
+      slideTimer: 0,
+      invuln: 0,
     },
     obstacles: [] as Obstacle[],
     collectibles: [] as Collectible[],
+    powerUps: [] as PowerUp[],
     particles: [] as Particle[],
+    floatingTexts: [] as FloatingText[],
     clouds: [] as Cloud[],
     buildings: [] as Building[],
     scroll: 0,
     speed: SCROLL_SPEED_BASE,
     spawnTimer: 0,
     collectTimer: 0,
+    powerTimer: 0,
     score: 0,
     collected: 0,
+    combo: 0,
+    comboTimer: 0,
     frame: 0,
     bgOffset: 0,
     shake: 0,
     flash: 0,
     runFrame: 0,
+    activePower: null as PowerUpType | null,
+    powerDuration: 0,
+    wind: 0,
+    windTarget: 0,
+    timeOfDay: 0,
   });
 
   const playerImgRef = useRef<HTMLImageElement | null>(null);
   const jeansImgRef = useRef<HTMLImageElement | null>(null);
+  const faceImgRef = useRef<HTMLImageElement | null>(null);
 
-  // Load images
   useEffect(() => {
     const p = new Image();
     p.src = playerImg;
@@ -105,99 +157,98 @@ export default function Game() {
     const j = new Image();
     j.src = jeansImg;
     j.onload = () => { jeansImgRef.current = j; };
+    const f = new Image();
+    f.src = faceImg;
+    f.onload = () => { faceImgRef.current = f; };
   }, []);
 
-  // Audio context for sound effects
+  // Audio
   const audioCtxRef = useRef<AudioContext | null>(null);
-  const playSound = useCallback((type: "jump" | "collect" | "hit" | "start") => {
+  const playSound = useCallback((type: "jump" | "collect" | "hit" | "start" | "power" | "combo") => {
     try {
       if (!audioCtxRef.current) {
         audioCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
       }
       const ctx = audioCtxRef.current;
       const now = ctx.currentTime;
-      if (type === "jump") {
+      const beep = (freq: number, dur: number, type: OscillatorType, vol: number, delay = 0, slideTo?: number) => {
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
-        osc.type = "square";
-        osc.frequency.setValueAtTime(380, now);
-        osc.frequency.exponentialRampToValueAtTime(720, now + 0.12);
-        gain.gain.setValueAtTime(0.18, now);
-        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
+        osc.type = type;
+        osc.frequency.setValueAtTime(freq, now + delay);
+        if (slideTo) osc.frequency.exponentialRampToValueAtTime(slideTo, now + delay + dur);
+        gain.gain.setValueAtTime(vol, now + delay);
+        gain.gain.exponentialRampToValueAtTime(0.01, now + delay + dur);
         osc.connect(gain).connect(ctx.destination);
-        osc.start(now);
-        osc.stop(now + 0.15);
-      } else if (type === "collect") {
-        [880, 1320, 1760].forEach((f, i) => {
-          const osc = ctx.createOscillator();
-          const gain = ctx.createGain();
-          osc.type = "triangle";
-          osc.frequency.setValueAtTime(f, now + i * 0.04);
-          gain.gain.setValueAtTime(0.15, now + i * 0.04);
-          gain.gain.exponentialRampToValueAtTime(0.01, now + i * 0.04 + 0.12);
-          osc.connect(gain).connect(ctx.destination);
-          osc.start(now + i * 0.04);
-          osc.stop(now + i * 0.04 + 0.12);
-        });
-      } else if (type === "hit") {
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.type = "sawtooth";
-        osc.frequency.setValueAtTime(220, now);
-        osc.frequency.exponentialRampToValueAtTime(60, now + 0.4);
-        gain.gain.setValueAtTime(0.3, now);
-        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.4);
-        osc.connect(gain).connect(ctx.destination);
-        osc.start(now);
-        osc.stop(now + 0.4);
-      } else if (type === "start") {
-        [523, 659, 784, 1047].forEach((f, i) => {
-          const osc = ctx.createOscillator();
-          const gain = ctx.createGain();
-          osc.type = "square";
-          osc.frequency.setValueAtTime(f, now + i * 0.08);
-          gain.gain.setValueAtTime(0.15, now + i * 0.08);
-          gain.gain.exponentialRampToValueAtTime(0.01, now + i * 0.08 + 0.2);
-          osc.connect(gain).connect(ctx.destination);
-          osc.start(now + i * 0.08);
-          osc.stop(now + i * 0.08 + 0.2);
-        });
+        osc.start(now + delay);
+        osc.stop(now + delay + dur);
+      };
+      if (type === "jump") beep(380, 0.12, "square", 0.18, 0, 720);
+      else if (type === "collect") {
+        beep(880, 0.1, "triangle", 0.15);
+        beep(1320, 0.1, "triangle", 0.15, 0.04);
+        beep(1760, 0.12, "triangle", 0.15, 0.08);
+      } else if (type === "hit") beep(220, 0.4, "sawtooth", 0.3, 0, 60);
+      else if (type === "start") {
+        [523, 659, 784, 1047].forEach((f, i) => beep(f, 0.2, "square", 0.15, i * 0.08));
+      } else if (type === "power") {
+        [440, 660, 880, 1100, 1320].forEach((f, i) => beep(f, 0.15, "sine", 0.2, i * 0.05));
+      } else if (type === "combo") {
+        beep(1000, 0.08, "triangle", 0.2);
+        beep(1500, 0.1, "triangle", 0.2, 0.05);
       }
-    } catch (e) {
-      // ignore audio errors
-    }
+    } catch {}
   }, []);
 
   const resetGame = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const groundY = canvas.height * GROUND_Y;
+    const groundY = canvas.height * GROUND_Y_RATIO;
     const s = stateRef.current;
     s.player = {
       x: 140,
       y: groundY - PLAYER_H,
       vy: 0,
+      vx: 0,
       onGround: true,
       doubleJumped: false,
       climbing: false,
       tilt: 0,
+      coyote: 0,
+      jumpBuffer: 0,
+      jumpHeld: false,
+      sliding: false,
+      slideTimer: 0,
+      invuln: 0,
     };
     s.obstacles = [];
     s.collectibles = [];
+    s.powerUps = [];
     s.particles = [];
+    s.floatingTexts = [];
     s.scroll = 0;
     s.speed = SCROLL_SPEED_BASE;
-    s.spawnTimer = 0;
-    s.collectTimer = 0;
+    s.spawnTimer = 30;
+    s.collectTimer = 50;
+    s.powerTimer = 600;
     s.score = 0;
     s.collected = 0;
+    s.combo = 0;
+    s.comboTimer = 0;
     s.frame = 0;
     s.shake = 0;
     s.flash = 0;
+    s.activePower = null;
+    s.powerDuration = 0;
+    s.wind = 0;
+    s.windTarget = 0;
+    s.timeOfDay = 0;
     setScore(0);
     setCollected(0);
+    setCombo(0);
+    setActivePower(null);
+    setPowerTime(0);
 
-    // Init clouds
     s.clouds = [];
     for (let i = 0; i < 8; i++) {
       s.clouds.push({
@@ -207,7 +258,6 @@ export default function Game() {
         size: 30 + Math.random() * 60,
       });
     }
-    // Init buildings (parallax)
     s.buildings = [];
     let bx = 0;
     while (bx < canvas.width + 200) {
@@ -229,78 +279,73 @@ export default function Game() {
     setTimeout(() => resetGame(), 0);
   }, [playSound, resetGame]);
 
-  const jump = useCallback(() => {
+  const tryJump = useCallback(() => {
     const s = stateRef.current;
-    if (s.player.onGround) {
-      s.player.vy = JUMP_VELOCITY;
-      s.player.onGround = false;
-      s.player.doubleJumped = false;
-      playSound("jump");
-      // dust particles
-      for (let i = 0; i < 8; i++) {
-        s.particles.push({
-          x: s.player.x + PLAYER_W / 2,
-          y: s.player.y + PLAYER_H,
-          vx: (Math.random() - 0.5) * 4,
-          vy: -Math.random() * 3,
-          life: 25,
-          maxLife: 25,
-          color: "#c9a87a",
-          size: 3 + Math.random() * 3,
-        });
-      }
-    } else if (!s.player.doubleJumped) {
-      s.player.vy = JUMP_VELOCITY * 0.85;
-      s.player.doubleJumped = true;
-      s.player.climbing = true;
-      playSound("jump");
-      // climbing sparkles
-      for (let i = 0; i < 12; i++) {
-        s.particles.push({
-          x: s.player.x + PLAYER_W / 2,
-          y: s.player.y + PLAYER_H / 2,
-          vx: (Math.random() - 0.5) * 6,
-          vy: (Math.random() - 0.5) * 6,
-          life: 30,
-          maxLife: 30,
-          color: ["#ffd700", "#ff00aa", "#00ffff"][Math.floor(Math.random() * 3)],
-          size: 2 + Math.random() * 3,
-        });
-      }
-    }
-  }, [playSound]);
+    s.player.jumpBuffer = JUMP_BUFFER_FRAMES;
+    s.player.jumpHeld = true;
+  }, []);
 
-  // Input handling
+  const releaseJump = useCallback(() => {
+    const s = stateRef.current;
+    s.player.jumpHeld = false;
+    if (s.player.vy < VARIABLE_JUMP_CUTOFF) {
+      s.player.vy = VARIABLE_JUMP_CUTOFF;
+    }
+  }, []);
+
+  // Input
   useEffect(() => {
-    const handleKey = (e: KeyboardEvent) => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.repeat) return;
       if (e.code === "Space" || e.code === "ArrowUp" || e.code === "KeyW") {
         e.preventDefault();
-        if (gameState === "playing") jump();
+        if (gameState === "playing") tryJump();
         else if (gameState === "menu" || gameState === "gameover") startGame();
         else if (gameState === "intro") setGameState("menu");
       } else if (e.code === "Enter") {
         if (gameState === "menu" || gameState === "gameover") startGame();
         else if (gameState === "intro") setGameState("menu");
+      } else if (e.code === "ArrowDown" || e.code === "KeyS") {
+        e.preventDefault();
+        const s = stateRef.current;
+        if (gameState === "playing" && s.player.onGround) {
+          s.player.sliding = true;
+          s.player.slideTimer = 30;
+        } else if (gameState === "playing" && !s.player.onGround) {
+          s.player.vy = Math.max(s.player.vy + 6, 12);
+        }
       }
     };
-    window.addEventListener("keydown", handleKey);
-    return () => window.removeEventListener("keydown", handleKey);
-  }, [gameState, jump, startGame]);
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.code === "Space" || e.code === "ArrowUp" || e.code === "KeyW") {
+        if (gameState === "playing") releaseJump();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("keyup", handleKeyUp);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keyup", handleKeyUp);
+    };
+  }, [gameState, tryJump, releaseJump, startGame]);
 
-  // Resize canvas
   useEffect(() => {
     const handleResize = () => {
       const canvas = canvasRef.current;
       if (!canvas) return;
-      canvas.width = window.innerWidth;
-      canvas.height = window.innerHeight;
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      canvas.width = window.innerWidth * dpr;
+      canvas.height = window.innerHeight * dpr;
+      canvas.style.width = window.innerWidth + "px";
+      canvas.style.height = window.innerHeight + "px";
+      const ctx = canvas.getContext("2d");
+      ctx?.setTransform(dpr, 0, 0, dpr, 0, 0);
     };
     handleResize();
     window.addEventListener("resize", handleResize);
     return () => window.removeEventListener("resize", handleResize);
   }, []);
 
-  // Auto-advance intro
   useEffect(() => {
     if (gameState === "intro") {
       const t = setTimeout(() => setGameState("menu"), 4500);
@@ -320,90 +365,267 @@ export default function Game() {
 
     const loop = () => {
       const s = stateRef.current;
-      const W = canvas.width;
-      const H = canvas.height;
-      const groundY = H * GROUND_Y;
+      const W = window.innerWidth;
+      const H = window.innerHeight;
+      const groundY = H * GROUND_Y_RATIO;
 
       s.frame++;
-      s.runFrame = (s.runFrame + 0.3) % 4;
+      s.runFrame = (s.runFrame + 0.3 + s.speed * 0.02) % 4;
+      s.timeOfDay += 0.0008;
 
-      // Difficulty ramp
-      s.speed = SCROLL_SPEED_BASE + Math.min(7, s.score / 250);
+      // Difficulty
+      const speedMultiplier = s.activePower === "boost" ? 1.5 : 1;
+      s.speed = (SCROLL_SPEED_BASE + Math.min(8, s.score / 220)) * speedMultiplier;
 
-      // Update player physics
-      s.player.vy += GRAVITY;
-      s.player.y += s.player.vy;
-      if (s.player.y >= groundY - PLAYER_H) {
-        s.player.y = groundY - PLAYER_H;
-        s.player.vy = 0;
-        s.player.onGround = true;
-        s.player.doubleJumped = false;
-        s.player.climbing = false;
+      // Wind drift
+      if (s.frame % 180 === 0) s.windTarget = (Math.random() - 0.5) * 1.2;
+      s.wind += (s.windTarget - s.wind) * 0.02;
+
+      // Power timer
+      if (s.activePower) {
+        s.powerDuration--;
+        if (s.powerDuration <= 0) {
+          s.activePower = null;
+          setActivePower(null);
+        } else if (s.frame % 5 === 0) {
+          setPowerTime(s.powerDuration);
+        }
       }
-      s.player.tilt = s.player.vy * 0.02;
+
+      // Combo timer
+      if (s.comboTimer > 0) {
+        s.comboTimer--;
+        if (s.comboTimer === 0 && s.combo > 0) {
+          s.combo = 0;
+          setCombo(0);
+        }
+      }
+
+      // Player physics — variable jump
+      const p = s.player;
+
+      // coyote time
+      if (p.onGround) p.coyote = COYOTE_FRAMES;
+      else if (p.coyote > 0) p.coyote--;
+
+      // jump buffer
+      if (p.jumpBuffer > 0) {
+        p.jumpBuffer--;
+        if (p.onGround || p.coyote > 0) {
+          p.vy = JUMP_VELOCITY;
+          p.onGround = false;
+          p.doubleJumped = false;
+          p.coyote = 0;
+          p.jumpBuffer = 0;
+          playSound("jump");
+          for (let i = 0; i < 10; i++) {
+            s.particles.push({
+              x: p.x + PLAYER_W / 2 + (Math.random() - 0.5) * 30,
+              y: p.y + PLAYER_H,
+              vx: (Math.random() - 0.5) * 5,
+              vy: -Math.random() * 3,
+              life: 25,
+              maxLife: 25,
+              color: "#c9a87a",
+              size: 3 + Math.random() * 3,
+            });
+          }
+        } else if (!p.doubleJumped) {
+          p.vy = JUMP_VELOCITY * 0.88;
+          p.doubleJumped = true;
+          p.climbing = true;
+          p.jumpBuffer = 0;
+          playSound("jump");
+          for (let i = 0; i < 14; i++) {
+            s.particles.push({
+              x: p.x + PLAYER_W / 2,
+              y: p.y + PLAYER_H / 2,
+              vx: (Math.random() - 0.5) * 7,
+              vy: (Math.random() - 0.5) * 7,
+              life: 32,
+              maxLife: 32,
+              color: ["#ffd700", "#ff00aa", "#00ffff"][Math.floor(Math.random() * 3)],
+              size: 2 + Math.random() * 3,
+            });
+          }
+        }
+      }
+
+      // gravity (lighter when holding jump)
+      const gravScale = p.vy < 0 && p.jumpHeld ? 0.55 : 1;
+      p.vy += GRAVITY * gravScale;
+      // terminal velocity
+      if (p.vy > 22) p.vy = 22;
+      p.y += p.vy;
+
+      // Slide logic
+      if (p.sliding) {
+        p.slideTimer--;
+        if (p.slideTimer <= 0) p.sliding = false;
+      }
+
+      if (p.y >= groundY - PLAYER_H) {
+        const wasAir = !p.onGround;
+        p.y = groundY - PLAYER_H;
+        if (wasAir && p.vy > 8) {
+          // landing dust
+          for (let i = 0; i < 12; i++) {
+            s.particles.push({
+              x: p.x + PLAYER_W / 2 + (Math.random() - 0.5) * PLAYER_W,
+              y: groundY,
+              vx: (Math.random() - 0.5) * 6,
+              vy: -Math.random() * 2,
+              life: 20,
+              maxLife: 20,
+              color: "#c9a87a",
+              size: 3,
+            });
+          }
+          s.shake = Math.min(s.shake + 4, 8);
+        }
+        p.vy = 0;
+        p.onGround = true;
+        p.doubleJumped = false;
+        p.climbing = false;
+      } else {
+        p.onGround = false;
+      }
+      p.tilt = Math.max(-0.3, Math.min(0.3, p.vy * 0.025));
+
+      if (p.invuln > 0) p.invuln--;
 
       // Spawn obstacles
       s.spawnTimer--;
       if (s.spawnTimer <= 0) {
-        const types: Obstacle["type"][] = ["spike", "rock", "saw"];
+        const types: ObstacleType[] = ["spike", "rock", "saw"];
+        if (s.score > 200) types.push("drone");
+        if (s.score > 500) types.push("fire");
         const type = types[Math.floor(Math.random() * types.length)];
-        const w = type === "saw" ? 60 : type === "rock" ? 70 : 50;
-        const h = type === "saw" ? 60 : type === "rock" ? 70 : 60;
-        const yOffset = type === "saw" && Math.random() < 0.3 ? -90 : 0;
+        let w = 50, h = 60, y = groundY - 60, vy = 0, baseY = 0;
+        if (type === "saw") { w = 60; h = 60; y = groundY - h + (Math.random() < 0.3 ? -90 : 0); }
+        else if (type === "rock") { w = 70; h = 70; y = groundY - h; }
+        else if (type === "spike") { w = 50; h = 60; y = groundY - h; }
+        else if (type === "drone") {
+          w = 64; h = 50;
+          baseY = groundY - 160 - Math.random() * 80;
+          y = baseY;
+        } else if (type === "fire") {
+          w = 80; h = 100; y = groundY - h;
+        }
         s.obstacles.push({
-          x: W + 40,
-          y: groundY - h + yOffset,
-          w,
-          h,
-          type,
-          rot: 0,
+          x: W + 40, y, w, h, type, rot: 0, vy, baseY,
         });
-        s.spawnTimer = Math.max(45, 110 - s.score / 25);
+        s.spawnTimer = Math.max(40, 110 - s.score / 22);
+        // sometimes pair
+        if (Math.random() < 0.15 && s.score > 300) {
+          s.spawnTimer = 30;
+        }
       }
 
       // Spawn collectibles
       s.collectTimer--;
       if (s.collectTimer <= 0) {
-        const w = 56;
-        const h = 80;
-        const heightTier = Math.floor(Math.random() * 3);
-        const yPos = heightTier === 0
-          ? groundY - h - 20
-          : heightTier === 1
-            ? groundY - h - 130
+        const isGolden = Math.random() < 0.08;
+        const w = isGolden ? 70 : 56;
+        const h = isGolden ? 100 : 80;
+        // Sometimes spawn arc of jeans
+        if (Math.random() < 0.35) {
+          const count = 4 + Math.floor(Math.random() * 3);
+          const startX = W + 40;
+          const peakHeight = 100 + Math.random() * 140;
+          for (let i = 0; i < count; i++) {
+            const t = i / (count - 1);
+            const arcY = groundY - h - 40 - peakHeight * Math.sin(t * Math.PI);
+            s.collectibles.push({
+              x: startX + i * 70,
+              y: arcY,
+              w: 56, h: 80,
+              collected: false,
+              bob: Math.random() * Math.PI * 2,
+              rot: 0,
+              golden: false,
+            });
+          }
+        } else {
+          const heightTier = Math.floor(Math.random() * 3);
+          const yPos = heightTier === 0 ? groundY - h - 20
+            : heightTier === 1 ? groundY - h - 130
             : groundY - h - 220;
-        s.collectibles.push({
-          x: W + 40 + Math.random() * 200,
-          y: yPos,
-          w,
-          h,
-          collected: false,
-          bob: Math.random() * Math.PI * 2,
-          rot: 0,
-        });
+          s.collectibles.push({
+            x: W + 40 + Math.random() * 200,
+            y: yPos, w, h,
+            collected: false,
+            bob: Math.random() * Math.PI * 2,
+            rot: 0,
+            golden: isGolden,
+          });
+        }
         s.collectTimer = 70 + Math.random() * 50;
       }
 
-      // Move and update obstacles
+      // Spawn power-ups
+      s.powerTimer--;
+      if (s.powerTimer <= 0) {
+        const types: PowerUpType[] = ["magnet", "shield", "boost"];
+        const type = types[Math.floor(Math.random() * types.length)];
+        s.powerUps.push({
+          x: W + 40,
+          y: groundY - 60 - Math.random() * 180,
+          w: 50, h: 50,
+          type,
+          collected: false,
+          bob: Math.random() * Math.PI * 2,
+          pulse: 0,
+        });
+        s.powerTimer = 700 + Math.random() * 500;
+      }
+
+      // Move obstacles
       s.obstacles = s.obstacles.filter((o) => {
         o.x -= s.speed;
-        if (o.type === "saw") o.rot += 0.3;
-        return o.x > -100;
+        if (o.type === "saw") o.rot += 0.35;
+        if (o.type === "drone") {
+          o.y = (o.baseY ?? o.y) + Math.sin(s.frame * 0.07 + o.x * 0.01) * 25;
+          o.x -= 0.8;
+        }
+        if (o.type === "fire") o.rot += 0.2;
+        return o.x > -150;
       });
 
-      // Move collectibles
+      // Move collectibles (with magnet)
+      const magnetActive = s.activePower === "magnet";
       s.collectibles = s.collectibles.filter((c) => {
         c.x -= s.speed;
         c.bob += 0.1;
         c.rot += 0.05;
+        if (magnetActive && !c.collected) {
+          const dx = (p.x + PLAYER_W / 2) - (c.x + c.w / 2);
+          const dy = (p.y + PLAYER_H / 2) - (c.y + c.h / 2);
+          const dist = Math.hypot(dx, dy);
+          if (dist < 280) {
+            c.x += (dx / dist) * 8;
+            c.y += (dy / dist) * 8;
+          }
+        }
         return c.x > -100 && !c.collected;
       });
 
-      // Collisions
-      const px = s.player.x + 12;
-      const py = s.player.y + 10;
+      // Move powerups
+      s.powerUps = s.powerUps.filter((pu) => {
+        pu.x -= s.speed;
+        pu.bob += 0.08;
+        pu.pulse += 0.15;
+        return pu.x > -100 && !pu.collected;
+      });
+
+      // Collisions — player hitbox shrinks when sliding
+      const slideShrink = p.sliding ? 30 : 0;
+      const px = p.x + 12;
+      const py = p.y + 10 + slideShrink;
       const pw = PLAYER_W - 24;
-      const ph = PLAYER_H - 16;
+      const ph = PLAYER_H - 16 - slideShrink;
+
+      const shieldActive = s.activePower === "shield";
 
       for (const o of s.obstacles) {
         const ox = o.x + 6;
@@ -411,24 +633,57 @@ export default function Game() {
         const ow = o.w - 12;
         const oh = o.h - 12;
         if (px < ox + ow && px + pw > ox && py < oy + oh && py + ph > oy) {
+          if (shieldActive || p.invuln > 0) {
+            // Break shield, push obstacle away as particles
+            if (shieldActive) {
+              s.activePower = null;
+              setActivePower(null);
+              p.invuln = 60;
+              for (let i = 0; i < 30; i++) {
+                s.particles.push({
+                  x: o.x + o.w / 2,
+                  y: o.y + o.h / 2,
+                  vx: (Math.random() - 0.5) * 14,
+                  vy: (Math.random() - 0.5) * 14,
+                  life: 40,
+                  maxLife: 40,
+                  color: ["#00ffff", "#ffffff", "#aaeeff"][Math.floor(Math.random() * 3)],
+                  size: 3 + Math.random() * 4,
+                });
+              }
+              s.flash = 0.6;
+              s.shake = 12;
+              o.x = -9999;
+              s.floatingTexts.push({
+                x: p.x + PLAYER_W / 2,
+                y: p.y - 10,
+                text: "BLOCKED!",
+                life: 50, maxLife: 50,
+                color: "#00ffff",
+                size: 24,
+                vy: -1.5,
+              });
+              continue;
+            }
+            continue;
+          }
           // hit
           playSound("hit");
-          s.shake = 20;
+          s.shake = 22;
           s.flash = 1;
-          // explosion particles
-          for (let i = 0; i < 30; i++) {
+          for (let i = 0; i < 35; i++) {
             s.particles.push({
-              x: s.player.x + PLAYER_W / 2,
-              y: s.player.y + PLAYER_H / 2,
-              vx: (Math.random() - 0.5) * 12,
-              vy: (Math.random() - 0.5) * 12,
-              life: 50,
-              maxLife: 50,
+              x: p.x + PLAYER_W / 2,
+              y: p.y + PLAYER_H / 2,
+              vx: (Math.random() - 0.5) * 14,
+              vy: (Math.random() - 0.5) * 14,
+              life: 55,
+              maxLife: 55,
               color: ["#ff4444", "#ff8800", "#ffd700"][Math.floor(Math.random() * 3)],
               size: 3 + Math.random() * 5,
+              gravity: 0.3,
             });
           }
-          // Update high score and end
           const finalScore = Math.floor(s.score);
           if (finalScore > highScore) {
             setHighScore(finalScore);
@@ -436,7 +691,7 @@ export default function Game() {
           }
           setScore(finalScore);
           setCollected(s.collected);
-          setTimeout(() => setGameState("gameover"), 600);
+          setTimeout(() => setGameState("gameover"), 700);
           return;
         }
       }
@@ -446,104 +701,170 @@ export default function Game() {
         if (px < c.x + c.w && px + pw > c.x && py < c.y + c.h && py + ph > c.y) {
           c.collected = true;
           s.collected++;
-          s.score += 50;
-          playSound("collect");
-          for (let i = 0; i < 16; i++) {
+          s.combo++;
+          s.comboTimer = 120;
+          const points = (c.golden ? 250 : 50) * Math.max(1, Math.floor(s.combo / 3) + 1);
+          s.score += points;
+          playSound(s.combo > 1 && s.combo % 3 === 0 ? "combo" : "collect");
+          setCombo(s.combo);
+
+          s.floatingTexts.push({
+            x: c.x + c.w / 2,
+            y: c.y,
+            text: `+${points}`,
+            life: 40, maxLife: 40,
+            color: c.golden ? "#ffd700" : "#ffffff",
+            size: c.golden ? 28 : 22,
+            vy: -2,
+          });
+
+          if (s.combo > 1 && s.combo % 5 === 0) {
+            s.floatingTexts.push({
+              x: p.x + PLAYER_W / 2,
+              y: p.y - 30,
+              text: `${s.combo}x COMBO!`,
+              life: 60, maxLife: 60,
+              color: "#ff00aa",
+              size: 32,
+              vy: -1.5,
+            });
+          }
+
+          for (let i = 0; i < (c.golden ? 28 : 16); i++) {
             s.particles.push({
               x: c.x + c.w / 2,
               y: c.y + c.h / 2,
-              vx: (Math.random() - 0.5) * 8,
-              vy: (Math.random() - 0.5) * 8 - 2,
-              life: 40,
-              maxLife: 40,
-              color: ["#ffd700", "#00ffff", "#ff00aa", "#ffffff"][Math.floor(Math.random() * 4)],
+              vx: (Math.random() - 0.5) * 9,
+              vy: (Math.random() - 0.5) * 9 - 2,
+              life: 45,
+              maxLife: 45,
+              color: c.golden
+                ? ["#ffd700", "#ffaa00", "#fff"][Math.floor(Math.random() * 3)]
+                : ["#ffd700", "#00ffff", "#ff00aa", "#ffffff"][Math.floor(Math.random() * 4)],
               size: 2 + Math.random() * 4,
             });
           }
         }
       }
 
-      // Score over time
-      s.score += 0.2;
-
-      // Update particles
-      s.particles = s.particles.filter((p) => {
-        p.x += p.vx;
-        p.y += p.vy;
-        p.vy += 0.2;
-        p.life--;
-        return p.life > 0;
-      });
-
-      // Update clouds
-      for (const c of s.clouds) {
-        c.x -= c.speed;
-        if (c.x < -c.size * 2) {
-          c.x = W + c.size;
-          c.y = 30 + Math.random() * (H * 0.35);
+      for (const pu of s.powerUps) {
+        if (pu.collected) continue;
+        if (px < pu.x + pu.w && px + pw > pu.x && py < pu.y + pu.h && py + ph > pu.y) {
+          pu.collected = true;
+          s.activePower = pu.type;
+          s.powerDuration = pu.type === "boost" ? 360 : 480;
+          setActivePower(pu.type);
+          setPowerTime(s.powerDuration);
+          playSound("power");
+          s.flash = 0.4;
+          const txt = pu.type === "magnet" ? "MAGNET!" : pu.type === "shield" ? "SHIELD!" : "BOOST!";
+          const col = pu.type === "magnet" ? "#ff00aa" : pu.type === "shield" ? "#00ffff" : "#ffd700";
+          s.floatingTexts.push({
+            x: p.x + PLAYER_W / 2,
+            y: p.y - 30,
+            text: txt,
+            life: 80, maxLife: 80,
+            color: col,
+            size: 36,
+            vy: -1,
+          });
+          for (let i = 0; i < 30; i++) {
+            s.particles.push({
+              x: pu.x + pu.w / 2,
+              y: pu.y + pu.h / 2,
+              vx: (Math.random() - 0.5) * 10,
+              vy: (Math.random() - 0.5) * 10,
+              life: 50,
+              maxLife: 50,
+              color: col,
+              size: 3 + Math.random() * 4,
+            });
+          }
         }
       }
 
-      // Update buildings (parallax)
-      for (const b of s.buildings) {
-        b.x -= s.speed * 0.3;
+      // Score over time
+      s.score += 0.25 * speedMultiplier;
+
+      // Update particles
+      s.particles = s.particles.filter((pa) => {
+        pa.x += pa.vx;
+        pa.y += pa.vy;
+        pa.vy += pa.gravity ?? 0.2;
+        pa.life--;
+        return pa.life > 0;
+      });
+
+      // Floating texts
+      s.floatingTexts = s.floatingTexts.filter((ft) => {
+        ft.y += ft.vy;
+        ft.vy *= 0.96;
+        ft.life--;
+        return ft.life > 0;
+      });
+
+      // Clouds
+      for (const cl of s.clouds) {
+        cl.x -= cl.speed + s.wind * 0.5;
+        if (cl.x < -cl.size * 2) {
+          cl.x = W + cl.size;
+          cl.y = 30 + Math.random() * (H * 0.35);
+        } else if (cl.x > W + cl.size * 2) {
+          cl.x = -cl.size;
+        }
       }
-      while (s.buildings.length && s.buildings[0].x + s.buildings[0].w < 0) {
-        s.buildings.shift();
-      }
+
+      for (const b of s.buildings) b.x -= s.speed * 0.3;
+      while (s.buildings.length && s.buildings[0].x + s.buildings[0].w < 0) s.buildings.shift();
       let lastX = s.buildings.length ? s.buildings[s.buildings.length - 1].x + s.buildings[s.buildings.length - 1].w : 0;
       while (lastX < W + 200) {
         const w = 80 + Math.random() * 120;
         const h = 140 + Math.random() * 220;
         s.buildings.push({
-          x: lastX + 8,
-          w,
-          h,
+          x: lastX + 8, w, h,
           color: ["#1a1233", "#241845", "#2d1b54", "#1f1340"][Math.floor(Math.random() * 4)],
         });
         lastX += w + 8;
       }
 
-      s.bgOffset = (s.bgOffset + s.speed * 0.5) % W;
-
       // === RENDER ===
-      // Sky gradient
+      // Sky shifts with time
+      const tod = (Math.sin(s.timeOfDay) + 1) / 2; // 0..1
+      const skyTop = `hsl(${260 - tod * 30}, 70%, ${10 + tod * 8}%)`;
+      const skyMid = `hsl(${290 - tod * 40}, 60%, ${20 + tod * 10}%)`;
+      const skyBot = `hsl(${20 - tod * 10}, 90%, ${50 + tod * 10}%)`;
       const grad = ctx.createLinearGradient(0, 0, 0, H);
-      grad.addColorStop(0, "#1a0b3d");
-      grad.addColorStop(0.4, "#3d1259");
-      grad.addColorStop(0.7, "#7a1f5e");
-      grad.addColorStop(1, "#ff6b35");
+      grad.addColorStop(0, skyTop);
+      grad.addColorStop(0.5, skyMid);
+      grad.addColorStop(1, skyBot);
       ctx.fillStyle = grad;
       ctx.fillRect(0, 0, W, H);
 
-      // Sun / moon
+      // Sun
       ctx.save();
       ctx.fillStyle = "#ffd76b";
       ctx.shadowColor = "#ffaa00";
       ctx.shadowBlur = 60;
       ctx.beginPath();
-      ctx.arc(W * 0.78, H * 0.32, 70, 0, Math.PI * 2);
+      ctx.arc(W * 0.78, H * 0.32 + Math.sin(s.timeOfDay) * 30, 70, 0, Math.PI * 2);
       ctx.fill();
       ctx.restore();
 
       // Stars
       ctx.fillStyle = "rgba(255,255,255,0.7)";
-      for (let i = 0; i < 50; i++) {
+      for (let i = 0; i < 60; i++) {
         const sx = (i * 137 + s.frame * 0.1) % W;
         const sy = (i * 73) % (H * 0.4);
         const tw = 0.5 + 0.5 * Math.sin(s.frame * 0.05 + i);
-        ctx.globalAlpha = tw;
+        ctx.globalAlpha = tw * 0.7;
         ctx.fillRect(sx, sy, 2, 2);
       }
       ctx.globalAlpha = 1;
 
-      // Apply screen shake
+      // Shake
       ctx.save();
       if (s.shake > 0) {
-        ctx.translate(
-          (Math.random() - 0.5) * s.shake,
-          (Math.random() - 0.5) * s.shake,
-        );
+        ctx.translate((Math.random() - 0.5) * s.shake, (Math.random() - 0.5) * s.shake);
         s.shake *= 0.85;
       }
 
@@ -562,7 +883,6 @@ export default function Game() {
       for (const b of s.buildings) {
         ctx.fillStyle = b.color;
         ctx.fillRect(b.x, groundY - b.h, b.w, b.h);
-        // windows
         ctx.fillStyle = "rgba(255, 220, 100, 0.6)";
         for (let wy = groundY - b.h + 20; wy < groundY - 30; wy += 24) {
           for (let wx = b.x + 10; wx < b.x + b.w - 14; wx += 20) {
@@ -571,7 +891,6 @@ export default function Game() {
             }
           }
         }
-        // roof outline
         ctx.fillStyle = "rgba(255, 0, 170, 0.4)";
         ctx.fillRect(b.x, groundY - b.h, b.w, 3);
       }
@@ -583,7 +902,6 @@ export default function Game() {
       ctx.fillStyle = groundGrad;
       ctx.fillRect(0, groundY, W, H - groundY);
 
-      // Ground stripes (movement indicator)
       ctx.fillStyle = "rgba(255, 215, 0, 0.5)";
       const stripeOffset = -(s.scroll % 80);
       s.scroll += s.speed;
@@ -591,7 +909,6 @@ export default function Game() {
         ctx.fillRect(x, groundY + 8, 40, 4);
       }
 
-      // Ground neon line
       ctx.strokeStyle = "#ff00aa";
       ctx.lineWidth = 3;
       ctx.shadowColor = "#ff00aa";
@@ -602,23 +919,48 @@ export default function Game() {
       ctx.stroke();
       ctx.shadowBlur = 0;
 
-      // Collectibles (baggy jeans)
+      // Power-ups
+      for (const pu of s.powerUps) {
+        const bobY = Math.sin(pu.bob) * 6;
+        const pulse = 1 + Math.sin(pu.pulse) * 0.15;
+        ctx.save();
+        ctx.translate(pu.x + pu.w / 2, pu.y + pu.h / 2 + bobY);
+        ctx.scale(pulse, pulse);
+        const col = pu.type === "magnet" ? "#ff00aa" : pu.type === "shield" ? "#00ffff" : "#ffd700";
+        ctx.shadowColor = col;
+        ctx.shadowBlur = 30;
+        ctx.fillStyle = col;
+        ctx.beginPath();
+        ctx.arc(0, 0, pu.w / 2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "#1a0b3d";
+        ctx.font = "bold 28px Inter, sans-serif";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        const icon = pu.type === "magnet" ? "M" : pu.type === "shield" ? "S" : "B";
+        ctx.fillText(icon, 0, 2);
+        ctx.restore();
+      }
+
+      // Collectibles
       for (const c of s.collectibles) {
         const bobY = Math.sin(c.bob) * 6;
         ctx.save();
         ctx.translate(c.x + c.w / 2, c.y + c.h / 2 + bobY);
         ctx.rotate(Math.sin(c.rot) * 0.15);
-        // glow
-        ctx.shadowColor = "#ffd700";
-        ctx.shadowBlur = 25;
+        ctx.shadowColor = c.golden ? "#ffd700" : "#ffaa44";
+        ctx.shadowBlur = c.golden ? 40 : 22;
         if (jeansImgRef.current) {
+          if (c.golden) {
+            ctx.filter = "hue-rotate(40deg) saturate(2) brightness(1.4)";
+          }
           ctx.drawImage(jeansImgRef.current, -c.w / 2, -c.h / 2, c.w, c.h);
+          ctx.filter = "none";
         } else {
-          ctx.fillStyle = "#3a6da8";
+          ctx.fillStyle = c.golden ? "#ffd700" : "#3a6da8";
           ctx.fillRect(-c.w / 2, -c.h / 2, c.w, c.h);
         }
         ctx.restore();
-        // sparkle
         ctx.fillStyle = "rgba(255, 255, 255, 0.9)";
         const sparkSize = 3 + Math.sin(s.frame * 0.2 + c.bob) * 2;
         ctx.fillRect(c.x + c.w - 8, c.y + 4 + bobY, sparkSize, sparkSize);
@@ -675,58 +1017,150 @@ export default function Game() {
           ctx.arc(0, 0, r * 0.3, 0, Math.PI * 2);
           ctx.fill();
           ctx.restore();
+        } else if (o.type === "drone") {
+          ctx.save();
+          ctx.translate(o.x + o.w / 2, o.y + o.h / 2);
+          ctx.fillStyle = "#222";
+          ctx.shadowColor = "#ff2266";
+          ctx.shadowBlur = 15;
+          // body
+          ctx.fillRect(-o.w / 2 + 10, -8, o.w - 20, 16);
+          // propellers
+          ctx.fillStyle = "rgba(200,200,200,0.6)";
+          const rotProp = s.frame * 0.8;
+          for (const dx of [-o.w / 2 + 6, o.w / 2 - 6]) {
+            ctx.save();
+            ctx.translate(dx, -10);
+            ctx.rotate(rotProp);
+            ctx.fillRect(-12, -1, 24, 2);
+            ctx.fillRect(-1, -12, 2, 24);
+            ctx.restore();
+          }
+          // red eye
+          ctx.fillStyle = "#ff2266";
+          ctx.beginPath();
+          ctx.arc(0, 0, 4, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.restore();
+        } else if (o.type === "fire") {
+          ctx.save();
+          ctx.translate(o.x + o.w / 2, o.y + o.h);
+          // base
+          ctx.fillStyle = "#3a1a0a";
+          ctx.fillRect(-o.w / 2, -10, o.w, 10);
+          // flames
+          for (let i = 0; i < 5; i++) {
+            const off = (s.frame * 0.3 + i) * 0.7;
+            const fy = -20 - i * 16 + Math.sin(off) * 4;
+            const fw = (o.w - i * 8);
+            const colors = ["#ffdd00", "#ff8800", "#ff4400", "#cc2200", "#881100"];
+            ctx.fillStyle = colors[i];
+            ctx.shadowColor = colors[i];
+            ctx.shadowBlur = 20;
+            ctx.beginPath();
+            ctx.ellipse(0, fy, fw / 2, 18, 0, 0, Math.PI * 2);
+            ctx.fill();
+          }
+          ctx.restore();
         }
       }
 
       // Player
       ctx.save();
-      ctx.translate(s.player.x + PLAYER_W / 2, s.player.y + PLAYER_H / 2);
-      ctx.rotate(s.player.tilt);
+      ctx.translate(p.x + PLAYER_W / 2, p.y + PLAYER_H / 2);
+      ctx.rotate(p.tilt);
+      // shield aura
+      if (s.activePower === "shield") {
+        const r = PLAYER_W * 0.85 + Math.sin(s.frame * 0.2) * 4;
+        ctx.strokeStyle = "rgba(0, 255, 255, 0.8)";
+        ctx.lineWidth = 4;
+        ctx.shadowColor = "#00ffff";
+        ctx.shadowBlur = 25;
+        ctx.beginPath();
+        ctx.arc(0, 0, r, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.fillStyle = "rgba(0, 255, 255, 0.08)";
+        ctx.fill();
+      }
+      // boost trail
+      if (s.activePower === "boost" && s.frame % 2 === 0) {
+        s.particles.push({
+          x: p.x,
+          y: p.y + PLAYER_H * 0.6 + Math.random() * 20,
+          vx: -3 - Math.random() * 3,
+          vy: (Math.random() - 0.5) * 1,
+          life: 22, maxLife: 22,
+          color: ["#ffd700", "#ff8800"][Math.floor(Math.random() * 2)],
+          size: 4 + Math.random() * 3,
+        });
+      }
       // climbing aura
-      if (s.player.climbing) {
+      if (p.climbing) {
         ctx.shadowColor = "#ffd700";
         ctx.shadowBlur = 30;
       } else {
         ctx.shadowColor = "rgba(0,0,0,0.5)";
         ctx.shadowBlur = 8;
       }
-      // small bob when running
-      const runBob = s.player.onGround ? Math.sin(s.runFrame * Math.PI) * 2 : 0;
+      // invuln flicker
+      if (p.invuln > 0 && Math.floor(p.invuln / 4) % 2 === 0) {
+        ctx.globalAlpha = 0.4;
+      }
+      const runBob = p.onGround && !p.sliding ? Math.sin(s.runFrame * Math.PI) * 2 : 0;
+      const slideY = p.sliding ? 30 : 0;
+      const slideRot = p.sliding ? -0.4 : 0;
+      ctx.rotate(slideRot);
       if (playerImgRef.current) {
-        ctx.drawImage(playerImgRef.current, -PLAYER_W / 2, -PLAYER_H / 2 + runBob, PLAYER_W, PLAYER_H);
+        ctx.drawImage(playerImgRef.current, -PLAYER_W / 2, -PLAYER_H / 2 + runBob + slideY, PLAYER_W, PLAYER_H);
       } else {
         ctx.fillStyle = "#222";
         ctx.fillRect(-PLAYER_W / 2, -PLAYER_H / 2, PLAYER_W, PLAYER_H);
       }
+      ctx.globalAlpha = 1;
       ctx.restore();
 
-      // shadow under player
+      // shadow
       ctx.fillStyle = "rgba(0,0,0,0.4)";
       ctx.beginPath();
-      const shadowScale = Math.max(0.4, 1 - (groundY - s.player.y - PLAYER_H) / 300);
-      ctx.ellipse(s.player.x + PLAYER_W / 2, groundY + 4, PLAYER_W * 0.4 * shadowScale, 6 * shadowScale, 0, 0, Math.PI * 2);
+      const shadowScale = Math.max(0.4, 1 - (groundY - p.y - PLAYER_H) / 300);
+      ctx.ellipse(p.x + PLAYER_W / 2, groundY + 4, PLAYER_W * 0.4 * shadowScale, 6 * shadowScale, 0, 0, Math.PI * 2);
       ctx.fill();
 
       // Particles
-      for (const p of s.particles) {
-        const alpha = p.life / p.maxLife;
-        ctx.fillStyle = p.color;
+      for (const pa of s.particles) {
+        const alpha = pa.life / pa.maxLife;
+        ctx.fillStyle = pa.color;
         ctx.globalAlpha = alpha;
-        ctx.fillRect(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size);
+        ctx.fillRect(pa.x - pa.size / 2, pa.y - pa.size / 2, pa.size, pa.size);
       }
       ctx.globalAlpha = 1;
 
-      ctx.restore(); // shake
+      // Floating texts
+      for (const ft of s.floatingTexts) {
+        const alpha = Math.min(1, ft.life / 20);
+        ctx.globalAlpha = alpha;
+        ctx.font = `900 ${ft.size}px Inter, sans-serif`;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillStyle = "rgba(0,0,0,0.6)";
+        ctx.fillText(ft.text, ft.x + 2, ft.y + 2);
+        ctx.fillStyle = ft.color;
+        ctx.shadowColor = ft.color;
+        ctx.shadowBlur = 12;
+        ctx.fillText(ft.text, ft.x, ft.y);
+        ctx.shadowBlur = 0;
+      }
+      ctx.globalAlpha = 1;
 
-      // Flash overlay
+      ctx.restore();
+
       if (s.flash > 0) {
         ctx.fillStyle = `rgba(255, 255, 255, ${s.flash})`;
         ctx.fillRect(0, 0, W, H);
         s.flash *= 0.85;
       }
 
-      // HUD - update React state occasionally
-      if (s.frame % 10 === 0) {
+      if (s.frame % 6 === 0) {
         setScore(Math.floor(s.score));
         setCollected(s.collected);
       }
@@ -738,7 +1172,7 @@ export default function Game() {
     return () => cancelAnimationFrame(raf);
   }, [gameState, playSound, highScore]);
 
-  // Initialize on first canvas mount for menu/intro background visuals
+  // Ambient bg for menu / gameover
   useEffect(() => {
     if (gameState === "menu" || gameState === "gameover") {
       const canvas = canvasRef.current;
@@ -749,15 +1183,14 @@ export default function Game() {
       let f = 0;
       const draw = () => {
         f++;
-        const W = canvas.width;
-        const H = canvas.height;
+        const W = window.innerWidth;
+        const H = window.innerHeight;
         const grad = ctx.createLinearGradient(0, 0, 0, H);
         grad.addColorStop(0, "#1a0b3d");
         grad.addColorStop(0.5, "#5d1259");
         grad.addColorStop(1, "#ff6b35");
         ctx.fillStyle = grad;
         ctx.fillRect(0, 0, W, H);
-        // grid floor
         ctx.strokeStyle = "rgba(255, 0, 170, 0.5)";
         ctx.lineWidth = 2;
         const horizon = H * 0.65;
@@ -776,7 +1209,6 @@ export default function Game() {
           ctx.lineTo(W / 2 + i * 200, H);
           ctx.stroke();
         }
-        // sun
         const sunGrad = ctx.createLinearGradient(0, horizon - 200, 0, horizon);
         sunGrad.addColorStop(0, "#ffd76b");
         sunGrad.addColorStop(1, "#ff2266");
@@ -784,7 +1216,6 @@ export default function Game() {
         ctx.beginPath();
         ctx.arc(W / 2, horizon, 150, Math.PI, 0);
         ctx.fill();
-        // sun stripes
         ctx.fillStyle = "#1a0b3d";
         for (let i = 0; i < 5; i++) {
           ctx.fillRect(W / 2 - 150, horizon - 130 + i * 28, 300, 6);
@@ -796,6 +1227,9 @@ export default function Game() {
     }
   }, [gameState]);
 
+  const powerLabel = activePower === "magnet" ? "MAGNET" : activePower === "shield" ? "SHIELD" : activePower === "boost" ? "BOOST" : "";
+  const powerColor = activePower === "magnet" ? "#ff00aa" : activePower === "shield" ? "#00ffff" : "#ffd700";
+
   return (
     <div className="relative w-screen h-screen overflow-hidden bg-black">
       <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" />
@@ -805,21 +1239,19 @@ export default function Game() {
         <div
           className="absolute inset-0 flex flex-col items-center justify-center"
           style={{
-            background:
-              "radial-gradient(ellipse at center, #5d1259 0%, #1a0b3d 60%, #000 100%)",
+            background: "radial-gradient(ellipse at center, #5d1259 0%, #1a0b3d 60%, #000 100%)",
           }}
         >
           <div className="text-center px-6">
             <div
               className="title-zoom"
               style={{
-                fontSize: "clamp(3rem, 12vw, 9rem)",
+                fontSize: "clamp(2.6rem, 11vw, 9rem)",
                 fontWeight: 900,
                 letterSpacing: "0.05em",
                 lineHeight: 0.9,
                 color: "#ffd700",
-                textShadow:
-                  "0 0 30px #ff00aa, 0 0 60px #ff00aa, 4px 4px 0 #ff2266, 8px 8px 0 #00ffff",
+                textShadow: "0 0 30px #ff00aa, 0 0 60px #ff00aa, 4px 4px 0 #ff2266, 8px 8px 0 #00ffff",
               }}
             >
               <div className="glitch-text" style={{ color: "#fff" }}>BAGGY</div>
@@ -829,7 +1261,7 @@ export default function Game() {
             <div
               className="mt-8 neon-flicker"
               style={{
-                fontSize: "clamp(1rem, 2.5vw, 1.5rem)",
+                fontSize: "clamp(0.9rem, 2.5vw, 1.5rem)",
                 color: "#ff00aa",
                 fontWeight: 700,
                 letterSpacing: "0.3em",
@@ -838,10 +1270,7 @@ export default function Game() {
               ◆ THE LEGEND BEGINS ◆
             </div>
           </div>
-          <div
-            className="absolute bottom-12 text-white/60 text-sm tracking-widest animate-pulse"
-            style={{ letterSpacing: "0.4em" }}
-          >
+          <div className="absolute bottom-12 text-white/60 text-sm tracking-widest animate-pulse" style={{ letterSpacing: "0.4em" }}>
             PRESS ANY KEY
           </div>
         </div>
@@ -849,41 +1278,63 @@ export default function Game() {
 
       {/* MENU */}
       {gameState === "menu" && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-          <div className="text-center pointer-events-auto">
+        <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none px-4">
+          <div className="text-center pointer-events-auto flex flex-col items-center">
+            {/* Hero portrait */}
+            <div
+              className="pulse-glow mb-4"
+              style={{
+                width: "clamp(120px, 22vw, 200px)",
+                height: "clamp(120px, 22vw, 200px)",
+                borderRadius: "999px",
+                overflow: "hidden",
+                border: "5px solid #ffd700",
+                boxShadow: "0 0 40px #ff00aa, inset 0 0 20px rgba(0,0,0,0.4)",
+                background: "#1a0b3d",
+              }}
+            >
+              <img
+                src={faceImg}
+                alt="AMAR"
+                style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+                draggable={false}
+              />
+            </div>
+
             <h1
               className="title-zoom"
               style={{
-                fontSize: "clamp(3rem, 10vw, 7rem)",
+                fontSize: "clamp(2.4rem, 9vw, 6rem)",
                 fontWeight: 900,
                 letterSpacing: "0.02em",
                 lineHeight: 0.9,
                 color: "#ffd700",
-                textShadow:
-                  "0 0 30px #ff00aa, 4px 4px 0 #ff2266, 8px 8px 30px rgba(0,0,0,0.8)",
+                textShadow: "0 0 30px #ff00aa, 4px 4px 0 #ff2266, 8px 8px 30px rgba(0,0,0,0.8)",
+                margin: 0,
               }}
             >
               BAGGY AMAR
             </h1>
             <div
               style={{
-                fontSize: "clamp(1.5rem, 5vw, 3rem)",
+                fontSize: "clamp(1.2rem, 4.5vw, 2.6rem)",
                 fontWeight: 900,
                 color: "#00ffff",
                 textShadow: "0 0 20px #00ffff, 3px 3px 0 #ff00aa",
                 letterSpacing: "0.2em",
+                marginTop: "0.2em",
               }}
             >
               3 DA
             </div>
 
-            <div className="mt-10 flex flex-col items-center gap-4">
+            <div className="mt-6 flex flex-col items-center gap-3">
               <button
                 onClick={startGame}
                 className="btn-press pulse-glow"
                 style={{
-                  padding: "16px 48px",
-                  fontSize: "clamp(1.2rem, 3vw, 1.8rem)",
+                  padding: "14px 44px",
+                  fontSize: "clamp(1.1rem, 3vw, 1.7rem)",
                   fontWeight: 900,
                   background: "linear-gradient(135deg, #ffd700, #ff00aa)",
                   color: "#1a0b3d",
@@ -898,28 +1349,16 @@ export default function Game() {
               </button>
 
               {highScore > 0 && (
-                <div
-                  className="mt-2 text-white/90 font-bold tracking-widest"
-                  style={{ fontSize: "0.95rem" }}
-                >
+                <div className="mt-1 text-white/90 font-bold tracking-widest" style={{ fontSize: "0.95rem" }}>
                   HI-SCORE:{" "}
-                  <span style={{ color: "#ffd700", textShadow: "0 0 10px #ffd700" }}>
-                    {highScore}
-                  </span>
+                  <span style={{ color: "#ffd700", textShadow: "0 0 10px #ffd700" }}>{highScore}</span>
                 </div>
               )}
 
-              <div
-                className="mt-6 text-white/70 text-xs tracking-widest"
-                style={{ letterSpacing: "0.3em" }}
-              >
-                SPACE / TAP TO JUMP · DOUBLE TAP TO CLIMB
-              </div>
-              <div
-                className="text-white/50 text-xs tracking-widest"
-                style={{ letterSpacing: "0.3em" }}
-              >
-                COLLECT BAGGY JEANS · DODGE TROUBLE
+              <div className="mt-4 text-white/70 text-[10px] sm:text-xs tracking-widest text-center" style={{ letterSpacing: "0.25em" }}>
+                <div>SPACE / TAP — JUMP · DOUBLE FOR CLIMB</div>
+                <div className="mt-1">HOLD — JUMP HIGHER · ↓ — SLIDE / DIVE</div>
+                <div className="mt-1 text-white/50">COLLECT JEANS · GRAB POWER-UPS · BUILD COMBO</div>
               </div>
             </div>
           </div>
@@ -930,9 +1369,9 @@ export default function Game() {
       {gameState === "playing" && (
         <>
           <div
-            className="absolute top-4 left-4 pointer-events-none"
+            className="absolute top-3 left-3 sm:top-4 sm:left-4 pointer-events-none"
             style={{
-              padding: "10px 18px",
+              padding: "8px 14px",
               background: "rgba(26, 11, 61, 0.85)",
               border: "2px solid #ffd700",
               borderRadius: "12px",
@@ -940,33 +1379,18 @@ export default function Game() {
               boxShadow: "0 0 20px rgba(255, 215, 0, 0.4)",
             }}
           >
-            <div
-              style={{
-                color: "#ffd700",
-                fontSize: "0.7rem",
-                fontWeight: 700,
-                letterSpacing: "0.2em",
-              }}
-            >
+            <div style={{ color: "#ffd700", fontSize: "0.65rem", fontWeight: 700, letterSpacing: "0.2em" }}>
               SCORE
             </div>
-            <div
-              style={{
-                color: "#fff",
-                fontSize: "1.6rem",
-                fontWeight: 900,
-                lineHeight: 1,
-                textShadow: "0 0 10px #ffd700",
-              }}
-            >
+            <div style={{ color: "#fff", fontSize: "1.4rem", fontWeight: 900, lineHeight: 1, textShadow: "0 0 10px #ffd700" }}>
               {score}
             </div>
           </div>
 
           <div
-            className="absolute top-4 right-4 pointer-events-none"
+            className="absolute top-3 right-3 sm:top-4 sm:right-4 pointer-events-none"
             style={{
-              padding: "10px 18px",
+              padding: "8px 14px",
               background: "rgba(26, 11, 61, 0.85)",
               border: "2px solid #00ffff",
               borderRadius: "12px",
@@ -974,35 +1398,80 @@ export default function Game() {
               boxShadow: "0 0 20px rgba(0, 255, 255, 0.4)",
             }}
           >
-            <div
-              style={{
-                color: "#00ffff",
-                fontSize: "0.7rem",
-                fontWeight: 700,
-                letterSpacing: "0.2em",
-              }}
-            >
+            <div style={{ color: "#00ffff", fontSize: "0.65rem", fontWeight: 700, letterSpacing: "0.2em" }}>
               JEANS
             </div>
-            <div
-              style={{
-                color: "#fff",
-                fontSize: "1.6rem",
-                fontWeight: 900,
-                lineHeight: 1,
-                textShadow: "0 0 10px #00ffff",
-              }}
-            >
+            <div style={{ color: "#fff", fontSize: "1.4rem", fontWeight: 900, lineHeight: 1, textShadow: "0 0 10px #00ffff" }}>
               👖 {collected}
             </div>
           </div>
 
-          {/* Tap zone for mobile */}
+          {combo > 1 && (
+            <div
+              className="absolute top-3 left-1/2 -translate-x-1/2 pointer-events-none"
+              style={{
+                padding: "6px 18px",
+                background: "rgba(26, 11, 61, 0.85)",
+                border: "2px solid #ff00aa",
+                borderRadius: "999px",
+                color: "#fff",
+                fontWeight: 900,
+                letterSpacing: "0.15em",
+                fontSize: "1rem",
+                textShadow: "0 0 10px #ff00aa",
+                animation: "pulse-glow 0.6s ease-in-out infinite",
+              }}
+            >
+              {combo}× COMBO
+            </div>
+          )}
+
+          {activePower && (
+            <div
+              className="absolute top-16 sm:top-20 right-3 sm:right-4 pointer-events-none"
+              style={{
+                padding: "6px 14px",
+                background: "rgba(26, 11, 61, 0.85)",
+                border: `2px solid ${powerColor}`,
+                borderRadius: "10px",
+                color: "#fff",
+                minWidth: "120px",
+              }}
+            >
+              <div style={{ color: powerColor, fontSize: "0.6rem", fontWeight: 700, letterSpacing: "0.2em" }}>
+                {powerLabel}
+              </div>
+              <div style={{
+                marginTop: "4px",
+                height: "5px",
+                background: "rgba(255,255,255,0.15)",
+                borderRadius: "999px",
+                overflow: "hidden",
+              }}>
+                <div style={{
+                  height: "100%",
+                  width: `${Math.max(0, powerTime / (activePower === "boost" ? 360 : 480) * 100)}%`,
+                  background: powerColor,
+                  boxShadow: `0 0 10px ${powerColor}`,
+                  transition: "width 0.1s linear",
+                }} />
+              </div>
+            </div>
+          )}
+
           <div
             className="absolute inset-0"
             onPointerDown={(e) => {
               e.preventDefault();
-              jump();
+              tryJump();
+            }}
+            onPointerUp={(e) => {
+              e.preventDefault();
+              releaseJump();
+            }}
+            onPointerCancel={(e) => {
+              e.preventDefault();
+              releaseJump();
             }}
             style={{ touchAction: "none" }}
           />
@@ -1012,83 +1481,63 @@ export default function Game() {
       {/* GAME OVER */}
       {gameState === "gameover" && (
         <div
-          className="absolute inset-0 flex flex-col items-center justify-center"
+          className="absolute inset-0 flex flex-col items-center justify-center px-4"
           style={{
             background: "rgba(10, 5, 24, 0.85)",
             backdropFilter: "blur(6px)",
           }}
         >
-          <div className="text-center px-6">
+          <div className="text-center w-full max-w-sm">
             <h2
               className="title-zoom"
               style={{
-                fontSize: "clamp(2.5rem, 8vw, 5.5rem)",
+                fontSize: "clamp(2.2rem, 8vw, 5rem)",
                 fontWeight: 900,
                 color: "#ff2266",
                 textShadow: "0 0 30px #ff2266, 4px 4px 0 #1a0b3d",
                 letterSpacing: "0.05em",
+                margin: 0,
               }}
             >
               GAME OVER
             </h2>
 
-            <div className="mt-8 flex flex-col items-center gap-3">
+            <div className="mt-6 flex flex-col items-center gap-3">
               <div
                 style={{
-                  padding: "20px 36px",
+                  padding: "18px 28px",
                   background: "rgba(26, 11, 61, 0.9)",
                   border: "3px solid #ffd700",
                   borderRadius: "16px",
-                  minWidth: "280px",
+                  width: "100%",
                   boxShadow: "0 0 30px rgba(255, 215, 0, 0.4)",
                 }}
               >
-                <div className="flex justify-between items-center mb-3">
-                  <span style={{ color: "#ffd700", fontWeight: 700, letterSpacing: "0.1em" }}>
-                    SCORE
-                  </span>
-                  <span
-                    style={{
-                      color: "#fff",
-                      fontSize: "2rem",
-                      fontWeight: 900,
-                      textShadow: "0 0 10px #ffd700",
-                    }}
-                  >
+                <div className="flex justify-between items-center mb-2">
+                  <span style={{ color: "#ffd700", fontWeight: 700, letterSpacing: "0.1em" }}>SCORE</span>
+                  <span style={{ color: "#fff", fontSize: "1.8rem", fontWeight: 900, textShadow: "0 0 10px #ffd700" }}>
                     {score}
                   </span>
                 </div>
-                <div className="flex justify-between items-center mb-3">
-                  <span style={{ color: "#00ffff", fontWeight: 700, letterSpacing: "0.1em" }}>
-                    JEANS
-                  </span>
-                  <span style={{ color: "#fff", fontSize: "1.5rem", fontWeight: 900 }}>
-                    👖 {collected}
-                  </span>
+                <div className="flex justify-between items-center mb-2">
+                  <span style={{ color: "#00ffff", fontWeight: 700, letterSpacing: "0.1em" }}>JEANS</span>
+                  <span style={{ color: "#fff", fontSize: "1.4rem", fontWeight: 900 }}>👖 {collected}</span>
                 </div>
                 <div className="flex justify-between items-center">
-                  <span style={{ color: "#ff00aa", fontWeight: 700, letterSpacing: "0.1em" }}>
-                    HI-SCORE
-                  </span>
-                  <span
-                    style={{
-                      color: "#ffd700",
-                      fontSize: "1.3rem",
-                      fontWeight: 900,
-                      textShadow: "0 0 10px #ffd700",
-                    }}
-                  >
+                  <span style={{ color: "#ff00aa", fontWeight: 700, letterSpacing: "0.1em" }}>HI-SCORE</span>
+                  <span style={{ color: "#ffd700", fontSize: "1.2rem", fontWeight: 900, textShadow: "0 0 10px #ffd700" }}>
                     {highScore}
                   </span>
                 </div>
                 {score >= highScore && score > 0 && (
                   <div
-                    className="mt-4 neon-flicker"
+                    className="mt-3 neon-flicker"
                     style={{
                       color: "#ffd700",
                       fontWeight: 900,
                       letterSpacing: "0.2em",
                       textShadow: "0 0 20px #ffd700",
+                      fontSize: "0.9rem",
                     }}
                   >
                     ★ NEW RECORD ★
@@ -1098,10 +1547,10 @@ export default function Game() {
 
               <button
                 onClick={startGame}
-                className="btn-press pulse-glow mt-4"
+                className="btn-press pulse-glow mt-2"
                 style={{
-                  padding: "14px 40px",
-                  fontSize: "clamp(1.1rem, 2.5vw, 1.5rem)",
+                  padding: "12px 36px",
+                  fontSize: "clamp(1rem, 2.5vw, 1.4rem)",
                   fontWeight: 900,
                   background: "linear-gradient(135deg, #ffd700, #ff00aa)",
                   color: "#1a0b3d",
@@ -1117,10 +1566,10 @@ export default function Game() {
 
               <button
                 onClick={() => setGameState("menu")}
-                className="btn-press mt-2"
+                className="btn-press"
                 style={{
-                  padding: "10px 28px",
-                  fontSize: "0.9rem",
+                  padding: "8px 24px",
+                  fontSize: "0.85rem",
                   fontWeight: 700,
                   background: "transparent",
                   color: "#fff",
@@ -1133,6 +1582,32 @@ export default function Game() {
                 MAIN MENU
               </button>
             </div>
+          </div>
+
+          {/* Developer footer */}
+          <div
+            className="absolute bottom-3 left-1/2 -translate-x-1/2 pointer-events-none"
+            style={{
+              fontSize: "10px",
+              letterSpacing: "0.4em",
+              fontWeight: 700,
+              color: "rgba(255, 255, 255, 0.55)",
+              textShadow: "0 0 8px rgba(255, 0, 170, 0.6)",
+              whiteSpace: "nowrap",
+            }}
+          >
+            MADE WITH{" "}
+            <span style={{ color: "#ff2266", textShadow: "0 0 10px #ff2266" }}>♥</span>{" "}
+            BY{" "}
+            <span
+              style={{
+                color: "#ffd700",
+                textShadow: "0 0 10px #ffd700, 0 0 20px #ff00aa",
+                letterSpacing: "0.5em",
+              }}
+            >
+              NZ R
+            </span>
           </div>
         </div>
       )}
