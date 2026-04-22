@@ -146,6 +146,8 @@ export default function Game() {
     wind: 0,
     windTarget: 0,
     timeOfDay: 0,
+    dying: false,
+    runId: 0,
   });
 
   const playerImgRef = useRef<HTMLImageElement | null>(null);
@@ -166,6 +168,20 @@ export default function Game() {
 
   // Audio
   const audioCtxRef = useRef<AudioContext | null>(null);
+  const pendingTimersRef = useRef<number[]>([]);
+
+  const clearPendingTimers = useCallback(() => {
+    for (const id of pendingTimersRef.current) clearTimeout(id);
+    pendingTimersRef.current = [];
+  }, []);
+  const schedule = useCallback((fn: () => void, ms: number) => {
+    const id = window.setTimeout(() => {
+      pendingTimersRef.current = pendingTimersRef.current.filter((x) => x !== id);
+      fn();
+    }, ms);
+    pendingTimersRef.current.push(id);
+    return id;
+  }, []);
   const playSound = useCallback((type: "jump" | "collect" | "hit" | "start" | "power" | "combo") => {
     try {
       if (!audioCtxRef.current) {
@@ -246,6 +262,8 @@ export default function Game() {
     s.wind = 0;
     s.windTarget = 0;
     s.timeOfDay = 0;
+    s.dying = false;
+    s.runId++;
     setScore(0);
     setCollected(0);
     setCombo(0);
@@ -277,15 +295,18 @@ export default function Game() {
   }, []);
 
   const startGame = useCallback(() => {
+    // Cancel any pending timers from the previous run (e.g. death->gameover, overlays)
+    clearPendingTimers();
+    // Reset state synchronously BEFORE flipping to "playing" so the loop never sees stale state
+    resetGame();
     playSound("start");
     setGameState("playing");
-    setTimeout(() => resetGame(), 0);
     // Sequence: GET READY -> RUN! -> WELCOME TO DHEKA CITY -> 3s peace -> obstacles
     setReadyOverlay("GET READY");
-    setTimeout(() => setReadyOverlay("RUN!"), 1100);
-    setTimeout(() => setReadyOverlay("WELCOME"), 2100);
-    setTimeout(() => setReadyOverlay(null), 3900);
-  }, [playSound, resetGame]);
+    schedule(() => setReadyOverlay("RUN!"), 1100);
+    schedule(() => setReadyOverlay("WELCOME"), 2100);
+    schedule(() => setReadyOverlay(null), 3900);
+  }, [playSound, resetGame, clearPendingTimers, schedule]);
 
   const tryJump = useCallback(() => {
     const s = stateRef.current;
@@ -740,7 +761,9 @@ export default function Game() {
             }
             continue;
           }
-          // hit
+          // hit — guard against re-firing during death animation
+          if (s.dying) continue;
+          s.dying = true;
           playSound("hit");
           s.shake = 22;
           s.flash = 1;
@@ -764,7 +787,13 @@ export default function Game() {
           }
           setScore(finalScore);
           setCollected(s.collected);
-          setTimeout(() => setGameState("gameover"), 700);
+          const deathRunId = s.runId;
+          schedule(() => {
+            // Only flip to gameover if the player hasn't already restarted
+            if (stateRef.current.runId === deathRunId) {
+              setGameState("gameover");
+            }
+          }, 700);
           return;
         }
       }
