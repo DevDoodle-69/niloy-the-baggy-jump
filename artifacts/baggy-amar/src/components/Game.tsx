@@ -1710,6 +1710,8 @@ export default function Game() {
           <div
             className="absolute inset-0"
             onPointerDown={(e) => {
+              // Don't fire if the user tapped a mobile control button
+              if ((e.target as HTMLElement).closest(".mobile-ctrl")) return;
               e.preventDefault();
               const el = e.currentTarget;
               (el as any)._swipeStartY = e.clientY;
@@ -1805,59 +1807,6 @@ export default function Game() {
             </div>
           )}
 
-          {/* On-screen mobile controls — hidden on devices with hover (desktop) */}
-          <div
-            className="absolute pointer-events-none"
-            style={{
-              left: 0, right: 0, bottom: "max(16px, env(safe-area-inset-bottom, 16px))",
-              display: "flex",
-              justifyContent: "space-between",
-              padding: "0 18px",
-              zIndex: 30,
-            }}
-          >
-            <button
-              aria-label="Slide / dive"
-              className="mobile-ctrl pointer-events-auto only-touch"
-              onPointerDown={(e) => {
-                e.preventDefault();
-                const s = stateRef.current;
-                if (s.player.onGround) {
-                  if (!s.player.sliding) {
-                    s.player.sliding = true;
-                    s.player.slideTimer = 50;
-                    const groundY = window.innerHeight * GROUND_Y_RATIO;
-                    for (let i = 0; i < 10; i++) {
-                      s.particles.push({
-                        x: s.player.x + PLAYER_W / 2 + (Math.random() - 0.5) * 40,
-                        y: groundY - 4,
-                        vx: (Math.random() - 0.5) * 5 - s.speed * 0.4,
-                        vy: -1 - Math.random() * 3,
-                        life: 20, maxLife: 20,
-                        color: ["#c9a87a", "#e0c89a"][Math.floor(Math.random() * 2)],
-                        size: 3 + Math.random() * 4,
-                      });
-                    }
-                  } else {
-                    s.player.slideTimer = 50;
-                  }
-                } else {
-                  s.player.vy = Math.max(s.player.vy + 8, 14);
-                }
-              }}
-            >
-              ↓
-            </button>
-            <button
-              aria-label="Jump"
-              className="mobile-ctrl pointer-events-auto only-touch"
-              onPointerDown={(e) => { e.preventDefault(); tryJump(); }}
-              onPointerUp={(e) => { e.preventDefault(); releaseJump(); }}
-              onPointerCancel={(e) => { e.preventDefault(); releaseJump(); }}
-            >
-              ↑
-            </button>
-          </div>
         </>
       )}
 
@@ -2129,6 +2078,121 @@ export default function Game() {
           </div>
         </div>
       )}
+
+      {/* ── MOBILE CONTROLS — rendered last, always on top ── */}
+      <div
+        style={{
+          position: "fixed",
+          left: 0,
+          right: 0,
+          bottom: "max(20px, env(safe-area-inset-bottom, 20px))",
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "flex-end",
+          padding: "0 20px",
+          zIndex: 999,
+          pointerEvents: "none",
+        }}
+      >
+        {/* SLIDE / DIVE button — bottom left, cyan ring */}
+        <button
+          aria-label="Slide / dive"
+          className="mobile-ctrl slide-btn only-touch"
+          style={{ pointerEvents: "auto" }}
+          onPointerDown={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (gameState !== "playing") return;
+            const s = stateRef.current;
+            if (s.player.onGround) {
+              if (!s.player.sliding) {
+                s.player.sliding = true;
+                s.player.slideTimer = 55;
+                const groundY = window.innerHeight * GROUND_Y_RATIO;
+                for (let i = 0; i < 12; i++) {
+                  s.particles.push({
+                    x: s.player.x + PLAYER_W / 2 + (Math.random() - 0.5) * 50,
+                    y: groundY - 4,
+                    vx: (Math.random() - 0.5) * 6 - s.speed * 0.4,
+                    vy: -1.5 - Math.random() * 3,
+                    life: 22, maxLife: 22,
+                    color: ["#c9a87a", "#e0c89a", "#b89060"][Math.floor(Math.random() * 3)],
+                    size: 3 + Math.random() * 4,
+                  });
+                }
+              } else {
+                s.player.slideTimer = 55;
+              }
+            } else {
+              s.player.vy = Math.max(s.player.vy + 9, 15);
+            }
+          }}
+        >
+          ↙
+        </button>
+
+        {/* JUMP button — bottom right, gold ring */}
+        <button
+          aria-label="Jump"
+          className="mobile-ctrl only-touch"
+          style={{ pointerEvents: "auto" }}
+          onPointerDown={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (gameState === "playing") tryJump();
+            else if (gameState === "menu" || gameState === "gameover") startGame();
+            else if (gameState === "intro") setGameState("menu");
+          }}
+          onPointerUp={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            releaseJump();
+          }}
+          onPointerCancel={(e) => {
+            e.preventDefault();
+            releaseJump();
+          }}
+        >
+          ↑
+        </button>
+      </div>
+
+      {/* ── PORTRAIT OVERLAY — rotate-device prompt for small phones ── */}
+      <div className="portrait-overlay">
+        <div style={{ fontSize: "3.5rem", animation: "rotate-pulse 1.8s ease-in-out infinite" }}>
+          📱
+        </div>
+        <div style={{
+          fontSize: "1.1rem",
+          fontWeight: 900,
+          letterSpacing: "0.15em",
+          color: "#ffd700",
+          textShadow: "0 0 20px #ffd700",
+        }}>
+          ROTATE YOUR DEVICE
+        </div>
+        <div style={{
+          fontSize: "0.78rem",
+          color: "rgba(255,255,255,0.7)",
+          letterSpacing: "0.1em",
+          fontWeight: 500,
+          marginTop: "4px",
+        }}>
+          This game plays best in landscape mode
+        </div>
+        <div style={{
+          marginTop: "16px",
+          padding: "8px 20px",
+          background: "rgba(255,215,0,0.1)",
+          border: "2px solid rgba(255,215,0,0.4)",
+          borderRadius: "999px",
+          fontSize: "0.72rem",
+          color: "#ffd700",
+          letterSpacing: "0.2em",
+        }}>
+          BAGGY AMAR 3 DA
+        </div>
+      </div>
     </div>
   );
 }
