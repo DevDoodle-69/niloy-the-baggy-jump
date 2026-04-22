@@ -1869,63 +1869,100 @@ export default function Game() {
       {/* GAME OVER */}
       {gameState === "gameover" && (
         <div
-          className="absolute inset-0 flex flex-col items-center justify-center px-4"
+          className="absolute inset-0 flex items-center justify-center px-3"
           style={{
-            background: "rgba(10, 5, 24, 0.85)",
+            background: "rgba(10, 5, 24, 0.88)",
             backdropFilter: "blur(6px)",
+            overflowY: "auto",
           }}
         >
-          <div className="text-center w-full max-w-sm">
-            <h2
-              className="title-zoom"
-              style={{
-                fontSize: "clamp(2.2rem, 8vw, 5rem)",
-                fontWeight: 900,
-                color: "#ff2266",
-                textShadow: "0 0 30px #ff2266, 4px 4px 0 #1a0b3d",
-                letterSpacing: "0.05em",
-                margin: 0,
-              }}
-            >
-              GAME OVER
-            </h2>
-
-            <div className="mt-6 flex flex-col items-center gap-3">
-              <div
+          {/* Responsive wrapper: column in portrait → row in landscape */}
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "var(--menu-dir, column)" as any,
+              alignItems: "center",
+              justifyContent: "center",
+              gap: "clamp(8px, 2.5vmin, 24px)",
+              width: "100%",
+              maxWidth: "680px",
+              padding: "clamp(8px, 2vmin, 16px) 0",
+            }}
+          >
+            {/* Left / top — GAME OVER title */}
+            <div className="text-center" style={{ flexShrink: 0 }}>
+              <h2
+                className="title-zoom"
                 style={{
-                  padding: "18px 28px",
-                  background: "rgba(26, 11, 61, 0.9)",
-                  border: "3px solid #ffd700",
-                  borderRadius: "16px",
-                  width: "100%",
-                  boxShadow: "0 0 30px rgba(255, 215, 0, 0.4)",
+                  fontSize: "clamp(1.8rem, 9vmin, 5rem)",
+                  fontWeight: 900,
+                  color: "#ff2266",
+                  textShadow: "0 0 30px #ff2266, 4px 4px 0 #1a0b3d",
+                  letterSpacing: "0.05em",
+                  margin: 0,
+                  lineHeight: 1,
                 }}
               >
-                <div className="flex justify-between items-center mb-2">
-                  <span style={{ color: "#ffd700", fontWeight: 700, letterSpacing: "0.1em" }}>SCORE</span>
-                  <span style={{ color: "#fff", fontSize: "1.8rem", fontWeight: 900, textShadow: "0 0 10px #ffd700" }}>
+                GAME
+              </h2>
+              <h2
+                style={{
+                  fontSize: "clamp(1.8rem, 9vmin, 5rem)",
+                  fontWeight: 900,
+                  color: "#ff2266",
+                  textShadow: "0 0 30px #ff2266, 4px 4px 0 #1a0b3d",
+                  letterSpacing: "0.05em",
+                  margin: 0,
+                  lineHeight: 1,
+                }}
+              >
+                OVER
+              </h2>
+            </div>
+
+            {/* Right / bottom — stats card + buttons + footer */}
+            <div
+              className="flex flex-col items-center"
+              style={{ gap: "clamp(6px, 1.8vmin, 14px)", width: "100%", maxWidth: "340px" }}
+            >
+              {/* Score card */}
+              <div
+                style={{
+                  padding: "clamp(10px, 2.5vmin, 18px) clamp(14px, 3.5vmin, 28px)",
+                  background: "rgba(26, 11, 61, 0.92)",
+                  border: "3px solid #ffd700",
+                  borderRadius: "14px",
+                  width: "100%",
+                  boxShadow: "0 0 28px rgba(255, 215, 0, 0.4)",
+                }}
+              >
+                <div className="flex justify-between items-center" style={{ marginBottom: "clamp(4px, 1vmin, 8px)" }}>
+                  <span style={{ color: "#ffd700", fontWeight: 700, letterSpacing: "0.1em", fontSize: "clamp(0.7rem, 2vmin, 1rem)" }}>SCORE</span>
+                  <span style={{ color: "#fff", fontSize: "clamp(1.2rem, 4.5vmin, 1.8rem)", fontWeight: 900, textShadow: "0 0 10px #ffd700" }}>
                     {score}
                   </span>
                 </div>
-                <div className="flex justify-between items-center mb-2">
-                  <span style={{ color: "#00ffff", fontWeight: 700, letterSpacing: "0.1em" }}>JEANS</span>
-                  <span style={{ color: "#fff", fontSize: "1.4rem", fontWeight: 900 }}>👖 {collected}</span>
+                <div className="flex justify-between items-center" style={{ marginBottom: "clamp(4px, 1vmin, 8px)" }}>
+                  <span style={{ color: "#00ffff", fontWeight: 700, letterSpacing: "0.1em", fontSize: "clamp(0.7rem, 2vmin, 1rem)" }}>JEANS</span>
+                  <span style={{ color: "#fff", fontSize: "clamp(1rem, 3.5vmin, 1.4rem)", fontWeight: 900 }}>👖 {collected}</span>
                 </div>
                 <div className="flex justify-between items-center">
-                  <span style={{ color: "#ff00aa", fontWeight: 700, letterSpacing: "0.1em" }}>HI-SCORE</span>
-                  <span style={{ color: "#ffd700", fontSize: "1.2rem", fontWeight: 900, textShadow: "0 0 10px #ffd700" }}>
+                  <span style={{ color: "#ff00aa", fontWeight: 700, letterSpacing: "0.1em", fontSize: "clamp(0.7rem, 2vmin, 1rem)" }}>HI-SCORE</span>
+                  <span style={{ color: "#ffd700", fontSize: "clamp(1rem, 3.5vmin, 1.4rem)", fontWeight: 900, textShadow: "0 0 10px #ffd700" }}>
                     {highScore}
                   </span>
                 </div>
                 {score >= highScore && score > 0 && (
                   <div
-                    className="mt-3 neon-flicker"
+                    className="neon-flicker"
                     style={{
                       color: "#ffd700",
                       fontWeight: 900,
                       letterSpacing: "0.2em",
                       textShadow: "0 0 20px #ffd700",
-                      fontSize: "0.9rem",
+                      fontSize: "clamp(0.7rem, 2vmin, 0.9rem)",
+                      marginTop: "clamp(4px, 1vmin, 10px)",
+                      textAlign: "center",
                     }}
                   >
                     ★ NEW RECORD ★
@@ -1933,31 +1970,34 @@ export default function Game() {
                 )}
               </div>
 
+              {/* RUN IT BACK */}
               <button
                 onClick={startGame}
-                className="btn-press pulse-glow mt-2"
+                className="btn-press pulse-glow"
                 style={{
-                  padding: "12px 36px",
-                  fontSize: "clamp(1rem, 2.5vw, 1.4rem)",
+                  padding: "clamp(8px, 2vmin, 12px) clamp(24px, 6vmin, 36px)",
+                  fontSize: "clamp(0.85rem, 2.8vmin, 1.3rem)",
                   fontWeight: 900,
                   background: "linear-gradient(135deg, #ffd700, #ff00aa)",
                   color: "#1a0b3d",
-                  border: "4px solid #fff",
+                  border: "3px solid #fff",
                   borderRadius: "999px",
                   cursor: "pointer",
                   letterSpacing: "0.15em",
-                  boxShadow: "0 6px 0 #5d1259, 0 10px 25px rgba(255, 0, 170, 0.6)",
+                  boxShadow: "0 5px 0 #5d1259, 0 8px 22px rgba(255, 0, 170, 0.6)",
+                  width: "100%",
                 }}
               >
                 ↻ RUN IT BACK
               </button>
 
+              {/* MAIN MENU */}
               <button
                 onClick={() => setGameState("menu")}
                 className="btn-press"
                 style={{
-                  padding: "8px 24px",
-                  fontSize: "0.85rem",
+                  padding: "clamp(6px, 1.5vmin, 8px) clamp(16px, 4vmin, 24px)",
+                  fontSize: "clamp(0.7rem, 2vmin, 0.85rem)",
                   fontWeight: 700,
                   background: "transparent",
                   color: "#fff",
@@ -1965,22 +2005,22 @@ export default function Game() {
                   borderRadius: "999px",
                   cursor: "pointer",
                   letterSpacing: "0.2em",
+                  width: "100%",
                 }}
               >
                 MAIN MENU
               </button>
 
-              {/* Developer footer — placed inside the panel so it's ALWAYS visible */}
+              {/* Footer */}
               <div
-                className="mt-4"
                 style={{
-                  padding: "8px 18px",
+                  padding: "5px 14px",
                   borderRadius: "999px",
                   background: "rgba(10, 5, 24, 0.85)",
                   border: "1px solid rgba(255, 215, 0, 0.5)",
-                  boxShadow: "0 0 22px rgba(255, 0, 170, 0.45)",
-                  fontSize: "11px",
-                  letterSpacing: "0.35em",
+                  boxShadow: "0 0 18px rgba(255, 0, 170, 0.4)",
+                  fontSize: "clamp(9px, 1.8vmin, 11px)",
+                  letterSpacing: "0.3em",
                   fontWeight: 800,
                   color: "rgba(255, 255, 255, 0.95)",
                   whiteSpace: "nowrap",
@@ -1992,7 +2032,7 @@ export default function Game() {
                   style={{
                     color: "#ff2266",
                     textShadow: "0 0 10px #ff2266, 0 0 18px #ff2266",
-                    fontSize: "14px",
+                    fontSize: "clamp(11px, 2.2vmin, 14px)",
                     display: "inline-block",
                     animation: "pulse-glow 1.4s ease-in-out infinite",
                   }}
@@ -2004,7 +2044,7 @@ export default function Game() {
                   style={{
                     color: "#ffd700",
                     textShadow: "0 0 10px #ffd700, 0 0 20px #ff00aa",
-                    letterSpacing: "0.5em",
+                    letterSpacing: "0.4em",
                     marginLeft: "2px",
                   }}
                 >
@@ -2028,7 +2068,7 @@ export default function Game() {
             style={{
               maxWidth: "440px",
               width: "100%",
-              maxHeight: "90vh",
+              maxHeight: "90dvh",
               overflowY: "auto",
               padding: "22px 22px 18px",
               background: "linear-gradient(180deg, rgba(26, 11, 61, 0.96), rgba(13, 6, 31, 0.96))",
