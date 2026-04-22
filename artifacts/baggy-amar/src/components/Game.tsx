@@ -230,10 +230,10 @@ export default function Game() {
     s.floatingTexts = [];
     s.scroll = 0;
     s.speed = SCROLL_SPEED_BASE;
-    // Grace period at start: no obstacles for the first ~3 seconds, easy ramp after
-    s.spawnTimer = 220;
-    s.collectTimer = 90;
-    s.powerTimer = 900;
+    // Grace period at start: no obstacles until ~7 seconds in (during intro overlays + 3s peace)
+    s.spawnTimer = 440;
+    s.collectTimer = 240;
+    s.powerTimer = 1100;
     s.score = 0;
     s.collected = 0;
     s.combo = 0;
@@ -280,11 +280,11 @@ export default function Game() {
     playSound("start");
     setGameState("playing");
     setTimeout(() => resetGame(), 0);
-    // Sequence: GET READY -> RUN! -> WELCOME TO DHEKA CITY
+    // Sequence: GET READY -> RUN! -> WELCOME TO DHEKA CITY -> 3s peace -> obstacles
     setReadyOverlay("GET READY");
-    setTimeout(() => setReadyOverlay("RUN!"), 1200);
-    setTimeout(() => setReadyOverlay("WELCOME"), 2200);
-    setTimeout(() => setReadyOverlay(null), 4400);
+    setTimeout(() => setReadyOverlay("RUN!"), 1100);
+    setTimeout(() => setReadyOverlay("WELCOME"), 2100);
+    setTimeout(() => setReadyOverlay(null), 3900);
   }, [playSound, resetGame]);
 
   const tryJump = useCallback(() => {
@@ -512,7 +512,8 @@ export default function Game() {
 
       // Spawn obstacles — only after warm-up grace period (~3.5s of running room)
       s.spawnTimer--;
-      const obstaclesUnlocked = s.frame > 210;
+      // Long peaceful intro: 3s after the welcome banner clears (~6.9s total) before any obstacle
+      const obstaclesUnlocked = s.frame > 420;
       if (obstaclesUnlocked && s.spawnTimer <= 0) {
         // Start with only easy obstacles, expand the pool as score climbs
         const types: ObstacleType[] = ["spike"];
@@ -1573,52 +1574,17 @@ export default function Game() {
               className="absolute inset-0 flex items-center justify-center pointer-events-none px-4"
             >
               {readyOverlay === "WELCOME" ? (
-                <div className="welcome-banner text-center" style={{ width: "100%" }}>
-                  <div
-                    style={{
-                      fontSize: "clamp(1rem, 3.5vw, 2rem)",
-                      color: "#fff",
-                      letterSpacing: "0.5em",
-                      marginBottom: "0.4em",
-                      textShadow: "0 0 12px #00ffff",
-                      opacity: 0.85,
-                    }}
-                  >
-                    WELCOME TO
-                  </div>
-                  <div
-                    style={{
-                      fontSize: "clamp(2.4rem, 10vw, 6.5rem)",
-                      lineHeight: 1.1,
-                      whiteSpace: "nowrap",
-                    }}
-                  >
-                    <span className="dheka-word">DHEKA</span>
-                    <span
-                      style={{
-                        color: "#fff",
-                        marginLeft: "0.3em",
-                        textShadow: "0 0 18px #ff00aa, 4px 4px 0 #1a0b3d",
-                        fontFamily: "'Georgia', serif",
-                        fontStyle: "italic",
-                        fontWeight: 700,
-                      }}
-                    >
-                      CITY
-                    </span>
-                  </div>
-                  <div
-                    style={{
-                      marginTop: "0.6em",
-                      fontSize: "clamp(0.7rem, 2vw, 1rem)",
-                      letterSpacing: "0.4em",
-                      color: "#ffd700",
-                      textShadow: "0 0 10px #ffd700",
-                      opacity: 0.9,
-                    }}
-                  >
-                    ✦ where the streets remember ✦
-                  </div>
+                <div
+                  className="welcome-banner text-center"
+                  style={{
+                    fontSize: "clamp(1.6rem, 7vw, 4.5rem)",
+                    letterSpacing: "0.12em",
+                    color: "#fff",
+                    textShadow: "0 0 16px rgba(255, 0, 170, 0.55), 2px 2px 0 #1a0b3d",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  WELCOME TO <span className="dheka-word">DHEKA</span> CITY
                 </div>
               ) : (
                 <div
