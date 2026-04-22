@@ -1,0 +1,27 @@
+{
+  "name": "BAGGY AMAR 3 DA",
+  "short_name": "BAGGY AMAR",
+  "description": "Endless runner in neon-drenched Dheka City. Run, jump, slide, survive!",
+  "start_url": "/",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#1a0b3d",
+  "theme_color": "#1a0b3d",
+  "categories": ["games", "entertainment"],
+  "icons": [
+    {
+      "src": "/icon-192.svg",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-512.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "screenshots": [],
+  "prefer_related_applications": false
+}

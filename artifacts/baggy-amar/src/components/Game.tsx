@@ -102,6 +102,8 @@ export default function Game() {
   const [powerTime, setPowerTime] = useState(0);
   const [readyOverlay, setReadyOverlay] = useState<string | null>(null);
   const [showControls, setShowControls] = useState(false);
+  const [installPrompt, setInstallPrompt] = useState<any>(null);
+  const [installDone, setInstallDone] = useState(false);
 
   const stateRef = useRef({
     player: {
@@ -164,6 +166,19 @@ export default function Game() {
     const f = new Image();
     f.src = faceImg;
     f.onload = () => { faceImgRef.current = f; };
+  }, []);
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      e.preventDefault();
+      setInstallPrompt(e);
+    };
+    window.addEventListener("beforeinstallprompt", handler);
+    window.addEventListener("appinstalled", () => {
+      setInstallDone(true);
+      setInstallPrompt(null);
+    });
+    return () => window.removeEventListener("beforeinstallprompt", handler);
   }, []);
 
   // Audio
@@ -1480,6 +1495,40 @@ export default function Game() {
               >
                 ⌨ CONTROLS
               </button>
+
+              {installPrompt && !installDone && (
+                <button
+                  className="btn-press mt-2"
+                  onClick={() => {
+                    installPrompt.prompt();
+                    installPrompt.userChoice.then((choice: any) => {
+                      if (choice.outcome === "accepted") {
+                        setInstallDone(true);
+                        setInstallPrompt(null);
+                      }
+                    });
+                  }}
+                  style={{
+                    padding: "8px 22px",
+                    fontSize: "0.78rem",
+                    fontWeight: 700,
+                    background: "linear-gradient(135deg, #00ffff22, #1a0b3d)",
+                    color: "#00ffff",
+                    border: "2px solid #00ffff",
+                    borderRadius: "999px",
+                    cursor: "pointer",
+                    letterSpacing: "0.2em",
+                    boxShadow: "0 0 16px rgba(0,255,255,0.4)",
+                  }}
+                >
+                  📲 INSTALL APP
+                </button>
+              )}
+              {installDone && (
+                <div style={{ color: "#00ffff", fontSize: "0.75rem", fontWeight: 700, letterSpacing: "0.2em", marginTop: "6px" }}>
+                  ✓ APP INSTALLED!
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -1583,7 +1632,33 @@ export default function Game() {
             className="absolute inset-0"
             onPointerDown={(e) => {
               e.preventDefault();
+              const el = e.currentTarget;
+              (el as any)._swipeStartY = e.clientY;
+              (el as any)._swipeStartX = e.clientX;
+              (el as any)._swipeSlid = false;
               tryJump();
+            }}
+            onPointerMove={(e) => {
+              e.preventDefault();
+              const el = e.currentTarget;
+              const startY = (el as any)._swipeStartY;
+              const startX = (el as any)._swipeStartX;
+              if (startY == null || (el as any)._swipeSlid) return;
+              const dy = e.clientY - startY;
+              const dx = Math.abs(e.clientX - startX);
+              if (dy > 40 && dy > dx * 1.5) {
+                (el as any)._swipeSlid = true;
+                releaseJump();
+                const s = stateRef.current;
+                if (gameState === "playing") {
+                  if (s.player.onGround) {
+                    s.player.sliding = true;
+                    s.player.slideTimer = 30;
+                  } else {
+                    s.player.vy = Math.max(s.player.vy + 6, 12);
+                  }
+                }
+              }
             }}
             onPointerUp={(e) => {
               e.preventDefault();
