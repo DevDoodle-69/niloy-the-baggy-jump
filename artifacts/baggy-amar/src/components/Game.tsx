@@ -100,6 +100,7 @@ export default function Game() {
   const [combo, setCombo] = useState(0);
   const [activePower, setActivePower] = useState<PowerUpType | null>(null);
   const [powerTime, setPowerTime] = useState(0);
+  const [readyOverlay, setReadyOverlay] = useState<string | null>(null);
 
   const stateRef = useRef({
     player: {
@@ -228,9 +229,10 @@ export default function Game() {
     s.floatingTexts = [];
     s.scroll = 0;
     s.speed = SCROLL_SPEED_BASE;
-    s.spawnTimer = 30;
-    s.collectTimer = 50;
-    s.powerTimer = 600;
+    // Grace period at start: no obstacles for the first ~3 seconds, easy ramp after
+    s.spawnTimer = 220;
+    s.collectTimer = 90;
+    s.powerTimer = 900;
     s.score = 0;
     s.collected = 0;
     s.combo = 0;
@@ -277,6 +279,10 @@ export default function Game() {
     playSound("start");
     setGameState("playing");
     setTimeout(() => resetGame(), 0);
+    // "GET READY → RUN!" overlay during the grace period
+    setReadyOverlay("GET READY");
+    setTimeout(() => setReadyOverlay("RUN!"), 1400);
+    setTimeout(() => setReadyOverlay(null), 2600);
   }, [playSound, resetGame]);
 
   const tryJump = useCallback(() => {
@@ -373,9 +379,11 @@ export default function Game() {
       s.runFrame = (s.runFrame + 0.3 + s.speed * 0.02) % 4;
       s.timeOfDay += 0.0008;
 
-      // Difficulty
+      // Difficulty — gentle ramp at start then accelerating
       const speedMultiplier = s.activePower === "boost" ? 1.5 : 1;
-      s.speed = (SCROLL_SPEED_BASE + Math.min(8, s.score / 220)) * speedMultiplier;
+      const warmup = Math.min(1, s.frame / 240); // ease in over first ~4s
+      const baseSpeed = SCROLL_SPEED_BASE * (0.7 + 0.3 * warmup);
+      s.speed = (baseSpeed + Math.min(8, s.score / 220)) * speedMultiplier;
 
       // Wind drift
       if (s.frame % 180 === 0) s.windTarget = (Math.random() - 0.5) * 1.2;
@@ -494,12 +502,16 @@ export default function Game() {
 
       if (p.invuln > 0) p.invuln--;
 
-      // Spawn obstacles
+      // Spawn obstacles — only after warm-up grace period (~3.5s of running room)
       s.spawnTimer--;
-      if (s.spawnTimer <= 0) {
-        const types: ObstacleType[] = ["spike", "rock", "saw"];
-        if (s.score > 200) types.push("drone");
-        if (s.score > 500) types.push("fire");
+      const obstaclesUnlocked = s.frame > 210;
+      if (obstaclesUnlocked && s.spawnTimer <= 0) {
+        // Start with only easy obstacles, expand the pool as score climbs
+        const types: ObstacleType[] = ["spike"];
+        if (s.score > 50) types.push("rock");
+        if (s.score > 150) types.push("saw");
+        if (s.score > 350) types.push("drone");
+        if (s.score > 700) types.push("fire");
         const type = types[Math.floor(Math.random() * types.length)];
         let w = 50, h = 60, y = groundY - 60, vy = 0, baseY = 0;
         if (type === "saw") { w = 60; h = 60; y = groundY - h + (Math.random() < 0.3 ? -90 : 0); }
@@ -515,10 +527,12 @@ export default function Game() {
         s.obstacles.push({
           x: W + 40, y, w, h, type, rot: 0, vy, baseY,
         });
-        s.spawnTimer = Math.max(40, 110 - s.score / 22);
-        // sometimes pair
-        if (Math.random() < 0.15 && s.score > 300) {
-          s.spawnTimer = 30;
+        // Spawn rate eases in: very loose at first, tightens with score
+        const earlyEase = Math.max(0, 1 - s.score / 200); // 1 -> 0 over first 200 score
+        s.spawnTimer = Math.max(45, 130 - s.score / 22) + earlyEase * 80;
+        // sometimes pair (only later in run)
+        if (Math.random() < 0.15 && s.score > 400) {
+          s.spawnTimer = 32;
         }
       }
 
@@ -1475,6 +1489,30 @@ export default function Game() {
             }}
             style={{ touchAction: "none" }}
           />
+
+          {/* GET READY / RUN! overlay during grace period */}
+          {readyOverlay && (
+            <div
+              key={readyOverlay}
+              className="absolute inset-0 flex items-center justify-center pointer-events-none"
+            >
+              <div
+                className="title-zoom"
+                style={{
+                  fontSize: "clamp(3rem, 12vw, 8rem)",
+                  fontWeight: 900,
+                  letterSpacing: "0.1em",
+                  color: readyOverlay === "RUN!" ? "#ffd700" : "#fff",
+                  textShadow:
+                    readyOverlay === "RUN!"
+                      ? "0 0 30px #ffd700, 0 0 60px #ff00aa, 6px 6px 0 #ff2266"
+                      : "0 0 25px #00ffff, 4px 4px 0 #ff00aa",
+                }}
+              >
+                {readyOverlay}
+              </div>
+            </div>
+          )}
         </>
       )}
 
@@ -1584,30 +1622,59 @@ export default function Game() {
             </div>
           </div>
 
-          {/* Developer footer */}
+          {/* Developer footer — small but unmissable */}
           <div
-            className="absolute bottom-3 left-1/2 -translate-x-1/2 pointer-events-none"
+            className="pointer-events-none"
             style={{
-              fontSize: "10px",
-              letterSpacing: "0.4em",
-              fontWeight: 700,
-              color: "rgba(255, 255, 255, 0.55)",
-              textShadow: "0 0 8px rgba(255, 0, 170, 0.6)",
-              whiteSpace: "nowrap",
+              position: "fixed",
+              left: 0,
+              right: 0,
+              bottom: "max(14px, env(safe-area-inset-bottom, 14px))",
+              display: "flex",
+              justifyContent: "center",
+              zIndex: 50,
             }}
           >
-            MADE WITH{" "}
-            <span style={{ color: "#ff2266", textShadow: "0 0 10px #ff2266" }}>♥</span>{" "}
-            BY{" "}
-            <span
+            <div
               style={{
-                color: "#ffd700",
-                textShadow: "0 0 10px #ffd700, 0 0 20px #ff00aa",
-                letterSpacing: "0.5em",
+                padding: "6px 14px",
+                borderRadius: "999px",
+                background: "rgba(10, 5, 24, 0.75)",
+                border: "1px solid rgba(255, 215, 0, 0.4)",
+                boxShadow: "0 0 18px rgba(255, 0, 170, 0.35)",
+                backdropFilter: "blur(6px)",
+                fontSize: "11px",
+                letterSpacing: "0.35em",
+                fontWeight: 800,
+                color: "rgba(255, 255, 255, 0.9)",
+                whiteSpace: "nowrap",
+                textShadow: "0 0 6px rgba(255, 0, 170, 0.5)",
               }}
             >
-              NZ R
-            </span>
+              MADE WITH{" "}
+              <span
+                style={{
+                  color: "#ff2266",
+                  textShadow: "0 0 10px #ff2266, 0 0 18px #ff2266",
+                  fontSize: "13px",
+                  display: "inline-block",
+                  animation: "pulse-glow 1.4s ease-in-out infinite",
+                }}
+              >
+                ♥
+              </span>{" "}
+              BY{" "}
+              <span
+                style={{
+                  color: "#ffd700",
+                  textShadow: "0 0 10px #ffd700, 0 0 20px #ff00aa",
+                  letterSpacing: "0.5em",
+                  marginLeft: "2px",
+                }}
+              >
+                NZ R
+              </span>
+            </div>
           </div>
         </div>
       )}
