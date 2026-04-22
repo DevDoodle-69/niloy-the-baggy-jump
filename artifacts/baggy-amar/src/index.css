@@ -12,14 +12,28 @@
 html, body, #root {
   margin: 0;
   padding: 0;
-  height: 100%;
   width: 100%;
+  height: 100vh;
+  height: 100dvh; /* dynamic viewport for mobile (handles address-bar resizing) */
   overflow: hidden;
   background: rgb(12, 8, 28);
   color: white;
   font-family: 'Inter', system-ui, sans-serif;
   user-select: none;
+  -webkit-user-select: none;
   -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
+  touch-action: none;
+}
+
+/* Prevent iOS double-tap zoom & rubber-band */
+* {
+  -webkit-touch-callout: none;
+}
+
+/* Force landscape suggestion only on tiny phones in portrait */
+@media (max-width: 480px) and (orientation: portrait) {
+  /* gameplay still works; just ensure HUD fits */
 }
 
 @keyframes glitch {
@@ -104,4 +118,119 @@ html, body, #root {
 }
 .btn-press:active {
   transform: scale(0.95);
+}
+
+/* Welcome banner animations */
+@keyframes welcome-slide {
+  0% { transform: translateY(40px) scale(0.7); opacity: 0; letter-spacing: 0; filter: blur(10px); }
+  40% { transform: translateY(0) scale(1.05); opacity: 1; letter-spacing: 0.15em; filter: blur(0); }
+  100% { transform: translateY(0) scale(1); opacity: 1; letter-spacing: 0.1em; filter: blur(0); }
+}
+
+@keyframes dheka-glow {
+  0%, 100% {
+    text-shadow:
+      0 0 12px #ffd700,
+      0 0 28px #ff00aa,
+      0 0 48px #ff00aa,
+      4px 4px 0 #1a0b3d,
+      -2px -2px 0 #00ffff;
+    transform: scale(1);
+  }
+  50% {
+    text-shadow:
+      0 0 22px #ffd700,
+      0 0 50px #ff00aa,
+      0 0 80px #ffd700,
+      4px 4px 0 #1a0b3d,
+      -2px -2px 0 #00ffff;
+    transform: scale(1.06);
+  }
+}
+
+@keyframes scan-line {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+.dheka-word {
+  font-family: 'Bebas Neue', 'Impact', 'Arial Black', sans-serif;
+  font-style: normal;
+  font-weight: 900;
+  color: #ffd700;
+  display: inline-block;
+  padding: 0 0.1em;
+  animation: dheka-glow 1.6s ease-in-out infinite;
+  transform-origin: center;
+  letter-spacing: 0.08em;
+  background: linear-gradient(180deg, #ffd700 0%, #ff8800 50%, #ff00aa 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.welcome-banner {
+  animation: welcome-slide 1s cubic-bezier(0.22, 1, 0.36, 1) both;
+  font-family: 'Playfair Display', 'Georgia', 'Times New Roman', serif;
+  font-style: italic;
+  font-weight: 900;
+}
+
+/* Mobile control buttons */
+.mobile-ctrl {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: rgba(26, 11, 61, 0.7);
+  border: 2px solid rgba(255, 215, 0, 0.6);
+  color: #ffd700;
+  font-size: 28px;
+  font-weight: 900;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(6px);
+  box-shadow: 0 0 18px rgba(255, 0, 170, 0.35);
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+}
+.mobile-ctrl:active {
+  background: rgba(255, 0, 170, 0.4);
+  transform: scale(0.92);
+}
+
+/* Show only on touch / coarse pointer devices */
+.only-touch {
+  display: none;
+}
+@media (hover: none) and (pointer: coarse) {
+  .only-touch {
+    display: flex;
+  }
+}
+
+/* Keyboard key visual */
+.kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 32px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: linear-gradient(180deg, #2d1860, #1a0b3d);
+  border: 1px solid rgba(255, 215, 0, 0.6);
+  border-bottom: 3px solid rgba(255, 215, 0, 0.9);
+  color: #ffd700;
+  font-family: 'Menlo', monospace;
+  font-weight: 700;
+  font-size: 12px;
+  letter-spacing: 0.05em;
+  text-shadow: 0 0 6px rgba(255, 215, 0, 0.5);
+  margin: 2px;
+}
+
+/* Responsiveness — short / landscape phones */
+@media (max-height: 480px) {
+  .mobile-ctrl { width: 52px; height: 52px; font-size: 22px; }
 }

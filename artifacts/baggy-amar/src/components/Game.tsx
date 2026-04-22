@@ -101,6 +101,7 @@ export default function Game() {
   const [activePower, setActivePower] = useState<PowerUpType | null>(null);
   const [powerTime, setPowerTime] = useState(0);
   const [readyOverlay, setReadyOverlay] = useState<string | null>(null);
+  const [showControls, setShowControls] = useState(false);
 
   const stateRef = useRef({
     player: {
@@ -279,10 +280,11 @@ export default function Game() {
     playSound("start");
     setGameState("playing");
     setTimeout(() => resetGame(), 0);
-    // "GET READY → RUN!" overlay during the grace period
+    // Sequence: GET READY -> RUN! -> WELCOME TO DHEKA CITY
     setReadyOverlay("GET READY");
-    setTimeout(() => setReadyOverlay("RUN!"), 1400);
-    setTimeout(() => setReadyOverlay(null), 2600);
+    setTimeout(() => setReadyOverlay("RUN!"), 1200);
+    setTimeout(() => setReadyOverlay("WELCOME"), 2200);
+    setTimeout(() => setReadyOverlay(null), 4400);
   }, [playSound, resetGame]);
 
   const tryJump = useCallback(() => {
@@ -1430,6 +1432,24 @@ export default function Game() {
                 <div className="mt-1">HOLD — JUMP HIGHER · ↓ — SLIDE / DIVE</div>
                 <div className="mt-1 text-white/50">COLLECT JEANS · GRAB POWER-UPS · BUILD COMBO</div>
               </div>
+
+              <button
+                onClick={() => setShowControls(true)}
+                className="btn-press mt-3"
+                style={{
+                  padding: "6px 18px",
+                  fontSize: "0.75rem",
+                  fontWeight: 700,
+                  background: "rgba(26, 11, 61, 0.7)",
+                  color: "#ffd700",
+                  border: "1px solid rgba(255, 215, 0, 0.6)",
+                  borderRadius: "999px",
+                  cursor: "pointer",
+                  letterSpacing: "0.3em",
+                }}
+              >
+                ⌨ CONTROLS
+              </button>
             </div>
           </div>
         </div>
@@ -1546,29 +1566,117 @@ export default function Game() {
             style={{ touchAction: "none" }}
           />
 
-          {/* GET READY / RUN! overlay during grace period */}
+          {/* GET READY / RUN! / WELCOME TO DHEKA CITY overlays */}
           {readyOverlay && (
             <div
               key={readyOverlay}
-              className="absolute inset-0 flex items-center justify-center pointer-events-none"
+              className="absolute inset-0 flex items-center justify-center pointer-events-none px-4"
             >
-              <div
-                className="title-zoom"
-                style={{
-                  fontSize: "clamp(3rem, 12vw, 8rem)",
-                  fontWeight: 900,
-                  letterSpacing: "0.1em",
-                  color: readyOverlay === "RUN!" ? "#ffd700" : "#fff",
-                  textShadow:
-                    readyOverlay === "RUN!"
-                      ? "0 0 30px #ffd700, 0 0 60px #ff00aa, 6px 6px 0 #ff2266"
-                      : "0 0 25px #00ffff, 4px 4px 0 #ff00aa",
-                }}
-              >
-                {readyOverlay}
-              </div>
+              {readyOverlay === "WELCOME" ? (
+                <div className="welcome-banner text-center" style={{ width: "100%" }}>
+                  <div
+                    style={{
+                      fontSize: "clamp(1rem, 3.5vw, 2rem)",
+                      color: "#fff",
+                      letterSpacing: "0.5em",
+                      marginBottom: "0.4em",
+                      textShadow: "0 0 12px #00ffff",
+                      opacity: 0.85,
+                    }}
+                  >
+                    WELCOME TO
+                  </div>
+                  <div
+                    style={{
+                      fontSize: "clamp(2.4rem, 10vw, 6.5rem)",
+                      lineHeight: 1.1,
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    <span className="dheka-word">DHEKA</span>
+                    <span
+                      style={{
+                        color: "#fff",
+                        marginLeft: "0.3em",
+                        textShadow: "0 0 18px #ff00aa, 4px 4px 0 #1a0b3d",
+                        fontFamily: "'Georgia', serif",
+                        fontStyle: "italic",
+                        fontWeight: 700,
+                      }}
+                    >
+                      CITY
+                    </span>
+                  </div>
+                  <div
+                    style={{
+                      marginTop: "0.6em",
+                      fontSize: "clamp(0.7rem, 2vw, 1rem)",
+                      letterSpacing: "0.4em",
+                      color: "#ffd700",
+                      textShadow: "0 0 10px #ffd700",
+                      opacity: 0.9,
+                    }}
+                  >
+                    ✦ where the streets remember ✦
+                  </div>
+                </div>
+              ) : (
+                <div
+                  className="title-zoom"
+                  style={{
+                    fontSize: "clamp(3rem, 12vw, 8rem)",
+                    fontWeight: 900,
+                    letterSpacing: "0.1em",
+                    color: readyOverlay === "RUN!" ? "#ffd700" : "#fff",
+                    textShadow:
+                      readyOverlay === "RUN!"
+                        ? "0 0 30px #ffd700, 0 0 60px #ff00aa, 6px 6px 0 #ff2266"
+                        : "0 0 25px #00ffff, 4px 4px 0 #ff00aa",
+                  }}
+                >
+                  {readyOverlay}
+                </div>
+              )}
             </div>
           )}
+
+          {/* On-screen mobile controls — hidden on devices with hover (desktop) */}
+          <div
+            className="absolute pointer-events-none"
+            style={{
+              left: 0, right: 0, bottom: "max(16px, env(safe-area-inset-bottom, 16px))",
+              display: "flex",
+              justifyContent: "space-between",
+              padding: "0 18px",
+              zIndex: 30,
+            }}
+          >
+            <button
+              aria-label="Slide / dive"
+              className="mobile-ctrl pointer-events-auto only-touch"
+              onPointerDown={(e) => {
+                e.preventDefault();
+                const s = stateRef.current;
+                if (s.player.onGround) {
+                  s.player.sliding = true;
+                  s.player.slideTimer = 30;
+                } else {
+                  s.player.vy = Math.max(s.player.vy + 6, 12);
+                }
+              }}
+            >
+              ↓
+            </button>
+            <button
+              aria-label="Jump"
+              className="mobile-ctrl pointer-events-auto only-touch"
+              onPointerDown={(e) => { e.preventDefault(); tryJump(); }}
+              onPointerUp={(e) => { e.preventDefault(); releaseJump(); }}
+              onPointerCancel={(e) => { e.preventDefault(); releaseJump(); }}
+            >
+              ↑
+            </button>
+          </div>
         </>
       )}
 
@@ -1718,6 +1826,125 @@ export default function Game() {
                 </span>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* CONTROLS / KEYBOARD HELP MODAL */}
+      {showControls && (
+        <div
+          className="absolute inset-0 flex items-center justify-center px-4"
+          style={{ background: "rgba(5, 2, 15, 0.85)", backdropFilter: "blur(8px)", zIndex: 100 }}
+          onClick={() => setShowControls(false)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              maxWidth: "440px",
+              width: "100%",
+              maxHeight: "90vh",
+              overflowY: "auto",
+              padding: "22px 22px 18px",
+              background: "linear-gradient(180deg, rgba(26, 11, 61, 0.96), rgba(13, 6, 31, 0.96))",
+              border: "2px solid #ffd700",
+              borderRadius: "20px",
+              boxShadow: "0 0 40px rgba(255, 0, 170, 0.45)",
+              color: "#fff",
+            }}
+          >
+            <div className="flex items-center justify-between mb-3">
+              <h3
+                style={{
+                  margin: 0,
+                  fontSize: "1.4rem",
+                  fontWeight: 900,
+                  color: "#ffd700",
+                  letterSpacing: "0.15em",
+                  textShadow: "0 0 14px #ff00aa",
+                }}
+              >
+                CONTROLS
+              </h3>
+              <button
+                onClick={() => setShowControls(false)}
+                style={{
+                  width: "32px",
+                  height: "32px",
+                  borderRadius: "999px",
+                  background: "rgba(255,255,255,0.1)",
+                  border: "1px solid rgba(255,255,255,0.3)",
+                  color: "#fff",
+                  fontSize: "16px",
+                  fontWeight: 900,
+                  cursor: "pointer",
+                }}
+                aria-label="Close"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div style={{ fontSize: "0.7rem", letterSpacing: "0.2em", color: "#00ffff", marginBottom: "8px" }}>
+              KEYBOARD
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: "10px 14px", alignItems: "center", fontSize: "0.85rem" }}>
+              <div><span className="kbd">SPACE</span> <span className="kbd">↑</span> <span className="kbd">W</span></div>
+              <div>Jump · double-tap to climb · hold for higher jump</div>
+
+              <div><span className="kbd">↓</span> <span className="kbd">S</span></div>
+              <div>Slide on ground · dive in air</div>
+
+              <div><span className="kbd">ENTER</span></div>
+              <div>Start / restart run</div>
+            </div>
+
+            <div style={{ fontSize: "0.7rem", letterSpacing: "0.2em", color: "#00ffff", margin: "16px 0 8px" }}>
+              TOUCH / MOBILE
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: "10px 14px", alignItems: "center", fontSize: "0.85rem" }}>
+              <div><span className="kbd">TAP</span></div>
+              <div>Jump · double-tap to climb · hold for higher jump</div>
+
+              <div><span className="kbd">↓ BTN</span></div>
+              <div>Slide / dive (button bottom-left)</div>
+            </div>
+
+            <div style={{ fontSize: "0.7rem", letterSpacing: "0.2em", color: "#00ffff", margin: "16px 0 8px" }}>
+              GAMEPAD / EMULATOR
+            </div>
+            <div style={{ fontSize: "0.8rem", color: "rgba(255,255,255,0.85)", lineHeight: 1.5 }}>
+              Map your emulator's buttons to <span className="kbd">SPACE</span> (A / X / jump),
+              <span className="kbd">↓</span> (down / B / slide), and <span className="kbd">ENTER</span> (start).
+              Works with any web-based controller layout.
+            </div>
+
+            <div style={{ fontSize: "0.7rem", letterSpacing: "0.2em", color: "#00ffff", margin: "16px 0 8px" }}>
+              POWER-UPS
+            </div>
+            <div style={{ fontSize: "0.8rem", color: "rgba(255,255,255,0.85)", lineHeight: 1.6 }}>
+              <div><span style={{ color: "#ff00aa", fontWeight: 900 }}>M</span> Magnet — pulls jeans toward you</div>
+              <div><span style={{ color: "#00ffff", fontWeight: 900 }}>S</span> Shield — absorbs one hit</div>
+              <div><span style={{ color: "#ffd700", fontWeight: 900 }}>B</span> Boost — speed + invincibility</div>
+            </div>
+
+            <button
+              onClick={() => setShowControls(false)}
+              className="btn-press mt-4"
+              style={{
+                width: "100%",
+                padding: "10px 24px",
+                fontSize: "0.9rem",
+                fontWeight: 900,
+                background: "linear-gradient(135deg, #ffd700, #ff00aa)",
+                color: "#1a0b3d",
+                border: "3px solid #fff",
+                borderRadius: "999px",
+                cursor: "pointer",
+                letterSpacing: "0.2em",
+              }}
+            >
+              GOT IT
+            </button>
           </div>
         </div>
       )}
