@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from "react";
+import { Smartphone } from "lucide-react";
 import playerImg from "@assets/Picsart_26-04-22_22-07-58-568_1776874889373.png";
 import jeansImg from "@assets/Picsart_26-04-22_22-16-38-121_1776874882176.png";
 import faceImg from "@assets/IMG_20260422_222620_505_1776875465902.jpg";
@@ -104,6 +105,7 @@ export default function Game() {
   const [showControls, setShowControls] = useState(false);
   const [installPrompt, setInstallPrompt] = useState<any>(null);
   const [installDone, setInstallDone] = useState(false);
+  const [isSliding, setIsSliding] = useState(false);
 
   const stateRef = useRef({
     player: {
@@ -353,10 +355,27 @@ export default function Game() {
         e.preventDefault();
         const s = stateRef.current;
         if (gameState === "playing" && s.player.onGround) {
-          s.player.sliding = true;
-          s.player.slideTimer = 30;
+          if (!s.player.sliding) {
+            s.player.sliding = true;
+            s.player.slideTimer = 50;
+            // Kick up dust when entering slide
+            const groundY = window.innerHeight * GROUND_Y_RATIO;
+            for (let i = 0; i < 10; i++) {
+              s.particles.push({
+                x: s.player.x + PLAYER_W / 2 + (Math.random() - 0.5) * 40,
+                y: groundY - 4,
+                vx: (Math.random() - 0.5) * 5 - s.speed * 0.4,
+                vy: -1 - Math.random() * 3,
+                life: 20, maxLife: 20,
+                color: ["#c9a87a", "#e0c89a"][Math.floor(Math.random() * 2)],
+                size: 3 + Math.random() * 4,
+              });
+            }
+          } else {
+            s.player.slideTimer = 50;
+          }
         } else if (gameState === "playing" && !s.player.onGround) {
-          s.player.vy = Math.max(s.player.vy + 6, 12);
+          s.player.vy = Math.max(s.player.vy + 8, 14);
         }
       }
     };
@@ -417,13 +436,15 @@ export default function Game() {
       s.runFrame = (s.runFrame + 0.3 + s.speed * 0.02) % 4;
       s.timeOfDay += 0.0008;
 
-      // Difficulty — very gentle, slow ramp. Speed creeps up gradually.
-      const speedMultiplier = s.activePower === "boost" ? 1.5 : 1;
+      // Difficulty — very gentle, slow ramp with satisfying acceleration plateaus
+      const speedMultiplier = s.activePower === "boost" ? 1.55 : 1;
       const warmup = Math.min(1, s.frame / 360); // ease in over first ~6s
       const baseSpeed = SCROLL_SPEED_BASE * (0.65 + 0.35 * warmup);
-      // Much slower score-based acceleration: cap at +5 over ~3000 score (was +8 at 1760)
-      const scoreBoost = Math.min(5, s.score / 600);
-      s.speed = (baseSpeed + scoreBoost) * speedMultiplier;
+      // Logarithmic acceleration — fast early gains, then gentler ramp for longevity
+      const scoreBoost = Math.min(6.5, Math.log(1 + s.score / 80) * 1.6);
+      // Micro-pulse every ~40 score for tactile excitement feedback
+      const speedPulse = Math.sin(s.score / 40) * 0.12;
+      s.speed = (baseSpeed + scoreBoost + speedPulse) * speedMultiplier;
 
       // Intensity oscillation — creates waves of "calm" and "intense" gameplay
       // Period ~14 seconds, smooth sine wave between 0.4 (chill) and 1.0 (busy)
@@ -464,6 +485,9 @@ export default function Game() {
       if (p.jumpBuffer > 0) {
         p.jumpBuffer--;
         if (p.onGround || p.coyote > 0) {
+          // Jumping cancels a slide
+          p.sliding = false;
+          p.slideTimer = 0;
           p.vy = JUMP_VELOCITY;
           p.onGround = false;
           p.doubleJumped = false;
@@ -510,10 +534,13 @@ export default function Game() {
       if (p.vy > 22) p.vy = 22;
       p.y += p.vy;
 
-      // Slide logic
+      // Slide logic — smooth timer decay, can't jump while sliding
       if (p.sliding) {
         p.slideTimer--;
-        if (p.slideTimer <= 0) p.sliding = false;
+        if (p.slideTimer <= 0) {
+          p.sliding = false;
+          p.slideTimer = 0;
+        }
       }
 
       if (p.y >= groundY - PLAYER_H) {
@@ -727,8 +754,10 @@ export default function Game() {
         return pu.x > -100 && !pu.collected;
       });
 
-      // Collisions — player hitbox shrinks when sliding
-      const slideShrink = p.sliding ? 30 : 0;
+      // Collisions — player hitbox drastically shrinks when sliding (character is lying flat)
+      // When sliding: character is ~PLAYER_W tall (70px) and PLAYER_H wide (110px)
+      // Hitbox height when sliding ≈ PLAYER_W - some margin = ~40px
+      const slideShrink = p.sliding ? 68 : 0;
       const px = p.x + 12;
       const py = p.y + 10 + slideShrink;
       const pw = PLAYER_W - 24;
@@ -1182,10 +1211,29 @@ export default function Game() {
         }
       }
 
+      // Slide dust trail
+      if (p.sliding && p.onGround && s.frame % 2 === 0) {
+        for (let i = 0; i < 3; i++) {
+          s.particles.push({
+            x: p.x + PLAYER_W / 2 + (Math.random() - 0.5) * PLAYER_H,
+            y: groundY - 4 + (Math.random() - 0.5) * 8,
+            vx: -s.speed * 0.6 - Math.random() * 2,
+            vy: -Math.random() * 2,
+            life: 18 + Math.random() * 12,
+            maxLife: 30,
+            color: ["#c9a87a", "#e0c89a", "#b89060"][Math.floor(Math.random() * 3)],
+            size: 3 + Math.random() * 4,
+          });
+        }
+      }
+
       // Player
       ctx.save();
-      ctx.translate(p.x + PLAYER_W / 2, p.y + PLAYER_H / 2);
-      ctx.rotate(p.tilt);
+      // When sliding: shift center down so character lies flush with the ground
+      const slideGroundOffset = p.sliding ? (PLAYER_H / 2 - PLAYER_W / 2) : 0;
+      ctx.translate(p.x + PLAYER_W / 2, p.y + PLAYER_H / 2 + slideGroundOffset);
+      // Only apply tilt when not sliding
+      if (!p.sliding) ctx.rotate(p.tilt);
       // shield aura
       if (s.activePower === "shield") {
         const r = PLAYER_W * 0.85 + Math.sin(s.frame * 0.2) * 4;
@@ -1224,11 +1272,11 @@ export default function Game() {
         ctx.globalAlpha = 0.4;
       }
       const runBob = p.onGround && !p.sliding ? Math.sin(s.runFrame * Math.PI) * 2 : 0;
-      const slideY = p.sliding ? 30 : 0;
-      const slideRot = p.sliding ? -0.4 : 0;
+      // Full 90° rotation for a proper lay-flat slide
+      const slideRot = p.sliding ? -Math.PI / 2 : 0;
       ctx.rotate(slideRot);
       if (playerImgRef.current) {
-        ctx.drawImage(playerImgRef.current, -PLAYER_W / 2, -PLAYER_H / 2 + runBob + slideY, PLAYER_W, PLAYER_H);
+        ctx.drawImage(playerImgRef.current, -PLAYER_W / 2, -PLAYER_H / 2 + runBob, PLAYER_W, PLAYER_H);
       } else {
         ctx.fillStyle = "#222";
         ctx.fillRect(-PLAYER_W / 2, -PLAYER_H / 2, PLAYER_W, PLAYER_H);
@@ -1236,11 +1284,12 @@ export default function Game() {
       ctx.globalAlpha = 1;
       ctx.restore();
 
-      // shadow
+      // shadow — wider when sliding to match lying-flat pose
       ctx.fillStyle = "rgba(0,0,0,0.4)";
       ctx.beginPath();
       const shadowScale = Math.max(0.4, 1 - (groundY - p.y - PLAYER_H) / 300);
-      ctx.ellipse(p.x + PLAYER_W / 2, groundY + 4, PLAYER_W * 0.4 * shadowScale, 6 * shadowScale, 0, 0, Math.PI * 2);
+      const shadowW = p.sliding ? PLAYER_H * 0.55 : PLAYER_W * 0.4;
+      ctx.ellipse(p.x + PLAYER_W / 2, groundY + 4, shadowW * shadowScale, 6 * shadowScale, 0, 0, Math.PI * 2);
       ctx.fill();
 
       // Particles
@@ -1280,6 +1329,7 @@ export default function Game() {
       if (s.frame % 6 === 0) {
         setScore(Math.floor(s.score));
         setCollected(s.collected);
+        setIsSliding(s.player.sliding);
       }
 
       raf = requestAnimationFrame(loop);
@@ -1512,21 +1562,26 @@ export default function Game() {
                     padding: "8px 22px",
                     fontSize: "0.78rem",
                     fontWeight: 700,
-                    background: "linear-gradient(135deg, #00ffff22, #1a0b3d)",
+                    background: "linear-gradient(135deg, rgba(0,255,255,0.12), #1a0b3d)",
                     color: "#00ffff",
                     border: "2px solid #00ffff",
                     borderRadius: "999px",
                     cursor: "pointer",
                     letterSpacing: "0.2em",
-                    boxShadow: "0 0 16px rgba(0,255,255,0.4)",
+                    boxShadow: "0 0 20px rgba(0,255,255,0.45), inset 0 0 12px rgba(0,255,255,0.08)",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "8px",
                   }}
                 >
-                  📲 INSTALL APP
+                  <Smartphone size={16} strokeWidth={2.5} />
+                  INSTALL APP
                 </button>
               )}
               {installDone && (
-                <div style={{ color: "#00ffff", fontSize: "0.75rem", fontWeight: 700, letterSpacing: "0.2em", marginTop: "6px" }}>
-                  ✓ APP INSTALLED!
+                <div style={{ color: "#00ffff", fontSize: "0.75rem", fontWeight: 700, letterSpacing: "0.2em", marginTop: "6px", display: "flex", alignItems: "center", gap: "6px" }}>
+                  <Smartphone size={14} strokeWidth={2.5} />
+                  APP INSTALLED!
                 </div>
               )}
             </div>
@@ -1595,6 +1650,30 @@ export default function Game() {
             </div>
           )}
 
+          {isSliding && (
+            <div
+              className="absolute pointer-events-none"
+              style={{
+                bottom: "26%",
+                left: "50%",
+                transform: "translateX(-50%)",
+                padding: "4px 16px",
+                background: "rgba(26, 11, 61, 0.85)",
+                border: "2px solid #ffd700",
+                borderRadius: "999px",
+                color: "#ffd700",
+                fontWeight: 900,
+                letterSpacing: "0.25em",
+                fontSize: "0.72rem",
+                textShadow: "0 0 12px #ffd700",
+                boxShadow: "0 0 16px rgba(255,215,0,0.5)",
+                whiteSpace: "nowrap",
+              }}
+            >
+              ▶▶ SLIDE
+            </div>
+          )}
+
           {activePower && (
             <div
               className="absolute top-16 sm:top-20 right-3 sm:right-4 pointer-events-none"
@@ -1646,16 +1725,32 @@ export default function Game() {
               if (startY == null || (el as any)._swipeSlid) return;
               const dy = e.clientY - startY;
               const dx = Math.abs(e.clientX - startX);
-              if (dy > 40 && dy > dx * 1.5) {
+              if (dy > 35 && dy > dx * 1.4) {
                 (el as any)._swipeSlid = true;
                 releaseJump();
                 const s = stateRef.current;
                 if (gameState === "playing") {
                   if (s.player.onGround) {
-                    s.player.sliding = true;
-                    s.player.slideTimer = 30;
+                    if (!s.player.sliding) {
+                      s.player.sliding = true;
+                      s.player.slideTimer = 50;
+                      const groundY = window.innerHeight * GROUND_Y_RATIO;
+                      for (let i = 0; i < 10; i++) {
+                        s.particles.push({
+                          x: s.player.x + PLAYER_W / 2 + (Math.random() - 0.5) * 40,
+                          y: groundY - 4,
+                          vx: (Math.random() - 0.5) * 5 - s.speed * 0.4,
+                          vy: -1 - Math.random() * 3,
+                          life: 20, maxLife: 20,
+                          color: ["#c9a87a", "#e0c89a"][Math.floor(Math.random() * 2)],
+                          size: 3 + Math.random() * 4,
+                        });
+                      }
+                    } else {
+                      s.player.slideTimer = 50;
+                    }
                   } else {
-                    s.player.vy = Math.max(s.player.vy + 6, 12);
+                    s.player.vy = Math.max(s.player.vy + 8, 14);
                   }
                 }
               }
@@ -1728,10 +1823,26 @@ export default function Game() {
                 e.preventDefault();
                 const s = stateRef.current;
                 if (s.player.onGround) {
-                  s.player.sliding = true;
-                  s.player.slideTimer = 30;
+                  if (!s.player.sliding) {
+                    s.player.sliding = true;
+                    s.player.slideTimer = 50;
+                    const groundY = window.innerHeight * GROUND_Y_RATIO;
+                    for (let i = 0; i < 10; i++) {
+                      s.particles.push({
+                        x: s.player.x + PLAYER_W / 2 + (Math.random() - 0.5) * 40,
+                        y: groundY - 4,
+                        vx: (Math.random() - 0.5) * 5 - s.speed * 0.4,
+                        vy: -1 - Math.random() * 3,
+                        life: 20, maxLife: 20,
+                        color: ["#c9a87a", "#e0c89a"][Math.floor(Math.random() * 2)],
+                        size: 3 + Math.random() * 4,
+                      });
+                    }
+                  } else {
+                    s.player.slideTimer = 50;
+                  }
                 } else {
-                  s.player.vy = Math.max(s.player.vy + 6, 12);
+                  s.player.vy = Math.max(s.player.vy + 8, 14);
                 }
               }}
             >
