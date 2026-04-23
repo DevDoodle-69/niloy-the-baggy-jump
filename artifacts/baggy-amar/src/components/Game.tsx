@@ -1306,14 +1306,17 @@ export default function Game() {
         }
       }
 
-      // Player — squash/stretch for game feel, proper crouch when sliding
+      // Player — squash/stretch for game feel; full -90° rotation when sliding (lying flat)
       ctx.save();
-      // Always translate to player center (no slideGroundOffset hack)
-      ctx.translate(p.x + PLAYER_W / 2, p.y + PLAYER_H / 2);
+      // Shift pivot down when sliding so the rotated image sits flush on the ground.
+      // slideGroundOffset pushes the translate centre down by the difference in half-dimensions,
+      // making the image's bottom edge land exactly at groundY once rotated.
+      const slideGroundOffset = p.sliding ? (PLAYER_H / 2 - PLAYER_W / 2) : 0;
+      ctx.translate(p.x + PLAYER_W / 2, p.y + PLAYER_H / 2 + slideGroundOffset);
       // Tilt only when airborne and not sliding
       if (!p.sliding && !p.onGround) ctx.rotate(p.tilt);
 
-      // Squash & stretch derived from vertical velocity
+      // Squash & stretch from vertical velocity (only while upright)
       if (!p.sliding) {
         const vyAbs = Math.abs(p.vy);
         const isRising = p.vy < -3 && !p.onGround;
@@ -1321,20 +1324,19 @@ export default function Game() {
         const stretchAmt = isRising  ? Math.min(0.18, vyAbs / 22) : 0;
         const squashAmt  = isFalling ? Math.min(0.10, vyAbs / 38) : 0;
         const sx = 1 - stretchAmt * 0.55 + squashAmt * 0.35;
-        const sy = 1 + stretchAmt       - squashAmt * 0.5;
+        const sy = 1 + stretchAmt         - squashAmt * 0.5;
         if (sx !== 1 || sy !== 1) ctx.scale(sx, sy);
       }
 
       // Shield aura
       if (s.activePower === "shield") {
-        const r = (p.sliding ? PLAYER_H * 0.52 : PLAYER_W * 0.85) + Math.sin(s.frame * 0.2) * 4;
-        const auraOffsetY = p.sliding ? PLAYER_H * 0.08 : 0;
+        const r = PLAYER_W * 0.85 + Math.sin(s.frame * 0.2) * 4;
         ctx.strokeStyle = "rgba(0, 255, 255, 0.8)";
         ctx.lineWidth = 4;
         ctx.shadowColor = "#00ffff";
         ctx.shadowBlur = 25;
         ctx.beginPath();
-        ctx.arc(0, auraOffsetY, r, 0, Math.PI * 2);
+        ctx.arc(0, 0, r, 0, Math.PI * 2);
         ctx.stroke();
         ctx.fillStyle = "rgba(0, 255, 255, 0.08)";
         ctx.fill();
@@ -1365,42 +1367,37 @@ export default function Game() {
       }
       const runBob = p.onGround && !p.sliding ? Math.sin(s.runFrame * Math.PI) * 2 : 0;
 
+      // Full 90° rotation when sliding — character lies flat/horizontal
+      if (p.sliding) ctx.rotate(-Math.PI / 2);
+
       if (playerImgRef.current) {
         const img = playerImgRef.current;
         if (p.sliding) {
-          // Crouched slide — draw squashed image anchored flush at ground.
-          // Bottom in local space = +PLAYER_H/2 (= groundY in world).
-          // We crop the top 28% of the source (mostly head) so the body/legs fill the frame.
-          const slideH = PLAYER_H * 0.48;
-          const slideW = PLAYER_W * 1.38;
-          const srcSkip = img.naturalHeight * 0.28;
-          const srcH    = img.naturalHeight - srcSkip;
+          // Crop the bottom ~14% of the source (transparent foot gap in the PNG)
+          // so the visible feet land exactly at the mathematical bottom of the draw area,
+          // which is already positioned at groundY by slideGroundOffset above.
+          const srcUsedH = img.naturalHeight * 0.86;
           ctx.drawImage(
             img,
-            0, srcSkip, img.naturalWidth, srcH,
-            -slideW / 2, PLAYER_H / 2 - slideH,
-            slideW, slideH
+            0, 0, img.naturalWidth, srcUsedH,
+            -PLAYER_W / 2, -PLAYER_H / 2,
+            PLAYER_W, PLAYER_H
           );
         } else {
           ctx.drawImage(img, -PLAYER_W / 2, -PLAYER_H / 2 + runBob, PLAYER_W, PLAYER_H);
         }
       } else {
         ctx.fillStyle = "#222";
-        if (p.sliding) {
-          const slideH = PLAYER_H * 0.48;
-          ctx.fillRect(-PLAYER_W * 0.68, PLAYER_H / 2 - slideH, PLAYER_W * 1.36, slideH);
-        } else {
-          ctx.fillRect(-PLAYER_W / 2, -PLAYER_H / 2, PLAYER_W, PLAYER_H);
-        }
+        ctx.fillRect(-PLAYER_W / 2, -PLAYER_H / 2, PLAYER_W, PLAYER_H);
       }
       ctx.globalAlpha = 1;
       ctx.restore();
 
-      // shadow — slightly wider when sliding to match crouched pose
+      // shadow — much wider when sliding to match the lying-flat pose
       ctx.fillStyle = "rgba(0,0,0,0.4)";
       ctx.beginPath();
       const shadowScale = Math.max(0.4, 1 - (groundY - p.y - PLAYER_H) / 300);
-      const shadowW = p.sliding ? PLAYER_W * 0.72 : PLAYER_W * 0.4;
+      const shadowW = p.sliding ? PLAYER_H * 0.52 : PLAYER_W * 0.4;
       ctx.ellipse(p.x + PLAYER_W / 2, groundY + 4, shadowW * shadowScale, 6 * shadowScale, 0, 0, Math.PI * 2);
       ctx.fill();
 
