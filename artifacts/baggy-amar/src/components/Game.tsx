@@ -583,6 +583,18 @@ export default function Game() {
           p.sliding = false;
           p.slideTimer = 0;
         }
+        // Continuous slide dust trail
+        if (p.onGround && s.frame % 3 === 0) {
+          s.particles.push({
+            x: p.x + Math.random() * PLAYER_W * 0.8,
+            y: groundY - 2,
+            vx: -s.speed * 0.55 - Math.random() * 2,
+            vy: -0.4 - Math.random() * 1.8,
+            life: 14, maxLife: 14,
+            color: ["#c9a87a", "#e0c89a", "#d4a96a"][Math.floor(Math.random() * 3)],
+            size: 2 + Math.random() * 3,
+          });
+        }
       }
 
       if (p.y >= groundY - PLAYER_H) {
@@ -796,10 +808,10 @@ export default function Game() {
         return pu.x > -100 && !pu.collected;
       });
 
-      // Collisions — player hitbox drastically shrinks when sliding (character is lying flat)
-      // When sliding: character is ~PLAYER_W tall (70px) and PLAYER_H wide (110px)
-      // Hitbox height when sliding ≈ PLAYER_W - some margin = ~40px
-      const slideShrink = p.sliding ? 68 : 0;
+      // Collisions — player hitbox shrinks when sliding (crouched)
+      // Slide visual is PLAYER_H*0.48 ≈ 53px tall, anchored at ground
+      // Hitbox: top ~45px from groundY, height ~39px, bottom ~6px above groundY
+      const slideShrink = p.sliding ? 55 : 0;
       const px = p.x + 12;
       const py = p.y + 10 + slideShrink;
       const pw = PLAYER_W - 24;
@@ -1107,6 +1119,31 @@ export default function Game() {
       ctx.stroke();
       ctx.shadowBlur = 0;
 
+      // Speed lines — motion blur feel, intensity grows with scroll speed
+      {
+        const speedFactor = Math.min(1, (s.speed - 5) / 11);
+        if (speedFactor > 0.05) {
+          ctx.save();
+          const lineColors = ["rgba(255,255,255,0.9)", "rgba(255,215,0,0.8)", "rgba(0,255,255,0.7)"];
+          for (let i = 0; i < 12; i++) {
+            const baseY = (groundY * 0.06) + (i / 12) * groundY * 0.82;
+            const scrollOffset = ((s.scroll * (1.8 + i * 0.25) + i * 149) % (W + 220));
+            const lineX = W - scrollOffset;
+            const lineLen = (18 + i * 10) * speedFactor;
+            ctx.globalAlpha = speedFactor * (0.08 + (i % 4) * 0.055);
+            ctx.strokeStyle = lineColors[i % 3];
+            ctx.lineWidth = 1 + (i % 3 === 0 ? 1 : 0);
+            ctx.shadowBlur = 0;
+            ctx.beginPath();
+            ctx.moveTo(lineX + lineLen, baseY);
+            ctx.lineTo(lineX, baseY);
+            ctx.stroke();
+          }
+          ctx.globalAlpha = 1;
+          ctx.restore();
+        }
+      }
+
       // Power-ups
       for (const pu of s.powerUps) {
         const bobY = Math.sin(pu.bob) * 6;
@@ -1269,27 +1306,40 @@ export default function Game() {
         }
       }
 
-      // Player
+      // Player — squash/stretch for game feel, proper crouch when sliding
       ctx.save();
-      // When sliding: shift center down so character lies flush with the ground
-      const slideGroundOffset = p.sliding ? (PLAYER_H / 2 - PLAYER_W / 2) : 0;
-      ctx.translate(p.x + PLAYER_W / 2, p.y + PLAYER_H / 2 + slideGroundOffset);
-      // Only apply tilt when not sliding
-      if (!p.sliding) ctx.rotate(p.tilt);
-      // shield aura
+      // Always translate to player center (no slideGroundOffset hack)
+      ctx.translate(p.x + PLAYER_W / 2, p.y + PLAYER_H / 2);
+      // Tilt only when airborne and not sliding
+      if (!p.sliding && !p.onGround) ctx.rotate(p.tilt);
+
+      // Squash & stretch derived from vertical velocity
+      if (!p.sliding) {
+        const vyAbs = Math.abs(p.vy);
+        const isRising = p.vy < -3 && !p.onGround;
+        const isFalling = p.vy > 4 && !p.onGround;
+        const stretchAmt = isRising  ? Math.min(0.18, vyAbs / 22) : 0;
+        const squashAmt  = isFalling ? Math.min(0.10, vyAbs / 38) : 0;
+        const sx = 1 - stretchAmt * 0.55 + squashAmt * 0.35;
+        const sy = 1 + stretchAmt       - squashAmt * 0.5;
+        if (sx !== 1 || sy !== 1) ctx.scale(sx, sy);
+      }
+
+      // Shield aura
       if (s.activePower === "shield") {
-        const r = PLAYER_W * 0.85 + Math.sin(s.frame * 0.2) * 4;
+        const r = (p.sliding ? PLAYER_H * 0.52 : PLAYER_W * 0.85) + Math.sin(s.frame * 0.2) * 4;
+        const auraOffsetY = p.sliding ? PLAYER_H * 0.08 : 0;
         ctx.strokeStyle = "rgba(0, 255, 255, 0.8)";
         ctx.lineWidth = 4;
         ctx.shadowColor = "#00ffff";
         ctx.shadowBlur = 25;
         ctx.beginPath();
-        ctx.arc(0, 0, r, 0, Math.PI * 2);
+        ctx.arc(0, auraOffsetY, r, 0, Math.PI * 2);
         ctx.stroke();
         ctx.fillStyle = "rgba(0, 255, 255, 0.08)";
         ctx.fill();
       }
-      // boost trail
+      // Boost trail
       if (s.activePower === "boost" && s.frame % 2 === 0) {
         s.particles.push({
           x: p.x,
@@ -1301,7 +1351,7 @@ export default function Game() {
           size: 4 + Math.random() * 3,
         });
       }
-      // climbing aura
+      // Climbing aura
       if (p.climbing) {
         ctx.shadowColor = "#ffd700";
         ctx.shadowBlur = 30;
@@ -1309,28 +1359,48 @@ export default function Game() {
         ctx.shadowColor = "rgba(0,0,0,0.5)";
         ctx.shadowBlur = 8;
       }
-      // invuln flicker
+      // Invuln flicker
       if (p.invuln > 0 && Math.floor(p.invuln / 4) % 2 === 0) {
         ctx.globalAlpha = 0.4;
       }
       const runBob = p.onGround && !p.sliding ? Math.sin(s.runFrame * Math.PI) * 2 : 0;
-      // Full 90° rotation for a proper lay-flat slide
-      const slideRot = p.sliding ? -Math.PI / 2 : 0;
-      ctx.rotate(slideRot);
+
       if (playerImgRef.current) {
-        ctx.drawImage(playerImgRef.current, -PLAYER_W / 2, -PLAYER_H / 2 + runBob, PLAYER_W, PLAYER_H);
+        const img = playerImgRef.current;
+        if (p.sliding) {
+          // Crouched slide — draw squashed image anchored flush at ground.
+          // Bottom in local space = +PLAYER_H/2 (= groundY in world).
+          // We crop the top 28% of the source (mostly head) so the body/legs fill the frame.
+          const slideH = PLAYER_H * 0.48;
+          const slideW = PLAYER_W * 1.38;
+          const srcSkip = img.naturalHeight * 0.28;
+          const srcH    = img.naturalHeight - srcSkip;
+          ctx.drawImage(
+            img,
+            0, srcSkip, img.naturalWidth, srcH,
+            -slideW / 2, PLAYER_H / 2 - slideH,
+            slideW, slideH
+          );
+        } else {
+          ctx.drawImage(img, -PLAYER_W / 2, -PLAYER_H / 2 + runBob, PLAYER_W, PLAYER_H);
+        }
       } else {
         ctx.fillStyle = "#222";
-        ctx.fillRect(-PLAYER_W / 2, -PLAYER_H / 2, PLAYER_W, PLAYER_H);
+        if (p.sliding) {
+          const slideH = PLAYER_H * 0.48;
+          ctx.fillRect(-PLAYER_W * 0.68, PLAYER_H / 2 - slideH, PLAYER_W * 1.36, slideH);
+        } else {
+          ctx.fillRect(-PLAYER_W / 2, -PLAYER_H / 2, PLAYER_W, PLAYER_H);
+        }
       }
       ctx.globalAlpha = 1;
       ctx.restore();
 
-      // shadow — wider when sliding to match lying-flat pose
+      // shadow — slightly wider when sliding to match crouched pose
       ctx.fillStyle = "rgba(0,0,0,0.4)";
       ctx.beginPath();
       const shadowScale = Math.max(0.4, 1 - (groundY - p.y - PLAYER_H) / 300);
-      const shadowW = p.sliding ? PLAYER_H * 0.55 : PLAYER_W * 0.4;
+      const shadowW = p.sliding ? PLAYER_W * 0.72 : PLAYER_W * 0.4;
       ctx.ellipse(p.x + PLAYER_W / 2, groundY + 4, shadowW * shadowScale, 6 * shadowScale, 0, 0, Math.PI * 2);
       ctx.fill();
 
