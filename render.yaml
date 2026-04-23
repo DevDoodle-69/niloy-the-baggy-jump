@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: baggy-amar-3da
+    runtime: node
+    buildCommand: npm install -g pnpm && pnpm install && pnpm --filter @workspace/baggy-amar run build
+    startCommand: node server.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 8080
