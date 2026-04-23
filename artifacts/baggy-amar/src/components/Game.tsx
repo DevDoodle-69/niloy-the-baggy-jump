@@ -157,11 +157,35 @@ export default function Game() {
   const playerImgRef = useRef<HTMLImageElement | null>(null);
   const jeansImgRef = useRef<HTMLImageElement | null>(null);
   const faceImgRef = useRef<HTMLImageElement | null>(null);
+  // Ratio (0–1) of the last non-transparent row in the player image.
+  // Detected once on load so the slide draw crops exactly to the visible feet.
+  const slideFootRatioRef = useRef<number>(1.0);
 
   useEffect(() => {
     const p = new Image();
     p.src = playerImg;
-    p.onload = () => { playerImgRef.current = p; };
+    p.onload = () => {
+      playerImgRef.current = p;
+      // Detect where the visible feet are so we can crop to them during slide
+      try {
+        const c = document.createElement("canvas");
+        c.width  = p.naturalWidth;
+        c.height = p.naturalHeight;
+        const cx = c.getContext("2d", { willReadFrequently: true })!;
+        cx.drawImage(p, 0, 0);
+        const { data } = cx.getImageData(0, 0, c.width, c.height);
+        let lastRow = c.height - 1;
+        outer: for (let y = c.height - 1; y >= 0; y--) {
+          for (let x = 0; x < c.width; x++) {
+            if (data[(y * c.width + x) * 4 + 3] > 12) { lastRow = y; break outer; }
+          }
+        }
+        // Crop to the row just below the feet (+1% padding so feet don't clip)
+        slideFootRatioRef.current = Math.min(1, (lastRow + 2) / c.height);
+      } catch {
+        slideFootRatioRef.current = 1.0;
+      }
+    };
     const j = new Image();
     j.src = jeansImg;
     j.onload = () => { jeansImgRef.current = j; };
@@ -1373,10 +1397,9 @@ export default function Game() {
       if (playerImgRef.current) {
         const img = playerImgRef.current;
         if (p.sliding) {
-          // Crop the bottom ~14% of the source (transparent foot gap in the PNG)
-          // so the visible feet land exactly at the mathematical bottom of the draw area,
-          // which is already positioned at groundY by slideGroundOffset above.
-          const srcUsedH = img.naturalHeight * 0.86;
+          // Crop to exactly where the visible feet are (detected at image-load time).
+          // This eliminates the transparent-bottom gap regardless of the source PNG.
+          const srcUsedH = img.naturalHeight * slideFootRatioRef.current;
           ctx.drawImage(
             img,
             0, 0, img.naturalWidth, srcUsedH,
